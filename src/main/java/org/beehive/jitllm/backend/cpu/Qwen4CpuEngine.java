@@ -10,6 +10,7 @@ import org.beehive.jitllm.tokenizer.Qwen4Tokenizer;
 import org.beehive.jitllm.inference.op.DeltaNetExecutor;
 import org.beehive.jitllm.inference.op.FlashNextLayerExecutor;
 import org.beehive.jitllm.inference.op.QsaExecutor;
+import org.beehive.jitllm.inference.op.MoeExecutor;
 
 /** Full Flash-Next host forward pass. Weight storage and PLE stay in the original checkpoint. */
 public final class Qwen4CpuEngine implements AutoCloseable {
@@ -119,6 +120,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
     private final Layer[] layers;
     private final Set<Sequence> sequences=Collections.newSetFromMap(new IdentityHashMap<>());
     private final List<Qwen4CpuLayers.HyperConnection> hyperResources=new ArrayList<>();
+    private final List<Qwen4Moe> moeResources=new ArrayList<>();
     private boolean closed;
 
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded) throws IOException {
@@ -134,6 +136,9 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         this(directory,context,pageBudget,onLoaded,executor,recurrentExecutor,layerExecutor,null);
     }
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor,FlashNextLayerExecutor layerExecutor,QsaExecutor qsaExecutor) throws IOException {
+        this(directory,context,pageBudget,onLoaded,executor,recurrentExecutor,layerExecutor,qsaExecutor,null);
+    }
+    public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor,FlashNextLayerExecutor layerExecutor,QsaExecutor qsaExecutor,MoeExecutor moeExecutor) throws IOException {
         config=Qwen4Configuration.load(directory,context);
         tokenizer=Qwen4Tokenizer.load(directory);
         reader=new PagedTensorReader(pageBudget,4096);
@@ -150,16 +155,18 @@ public final class Qwen4CpuEngine implements AutoCloseable {
                 var mlpMix=own(new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".mlp_hyper_connection",true,executor,layerExecutor));
                 var delta=config.isRecurrentLayer(i) ? new Qwen4DeltaNet(config,index,reader,prefix+".linear_attn",executor,recurrentExecutor) : null;
                 var attention=config.isRecurrentLayer(i) ? null : new Qwen4QsaAttention(config,index,reader,prefix+".self_attn",true,true,executor,qsaExecutor);
-                var moe=new Qwen4Moe(config,index,reader,prefix+".mlp",executor);
+                var moe=own(new Qwen4Moe(config,index,reader,prefix+".mlp",executor,moeExecutor));
                 var ple=config.hasPle(i) ? new Qwen4CpuLayers.Ple(config,index,reader,prefix+".ple",executor,layerExecutor) : null;
                 layers[i]=new Layer(attentionMix,mlpMix,delta,attention,moe,ple);
                 if(onLoaded!=null) onLoaded.accept(i+1,layers.length);
             }
         } catch(IOException|RuntimeException|Error failure) {
             for(var resource:hyperResources) try {resource.close();} catch(IOException closing) {failure.addSuppressed(closing);}
+            for(var resource:moeResources) try {resource.close();} catch(IOException closing) {failure.addSuppressed(closing);}
             try {reader.close();} catch(IOException closing) {failure.addSuppressed(closing);} throw failure;
         }
     }
+    private Qwen4Moe own(Qwen4Moe resource) {moeResources.add(resource);return resource;}
     private Qwen4CpuLayers.HyperConnection own(Qwen4CpuLayers.HyperConnection resource) {hyperResources.add(resource);return resource;}
     public Qwen4Configuration configuration() { return config; }
     public Qwen4Tokenizer tokenizer() { return tokenizer; }
@@ -210,6 +217,8 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         }
         for(var resource:hyperResources) try {resource.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         hyperResources.clear();
+        for(var resource:moeResources) try {resource.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
+        moeResources.clear();
         try {reader.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         if(failure!=null) throw failure;
     }

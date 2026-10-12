@@ -6,21 +6,29 @@ import java.nio.ByteOrder;
 import java.util.*;
 import org.beehive.jitllm.format.safetensors.*;
 import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
+import org.beehive.jitllm.inference.op.MoeExecutor;
 
 /** Qwen4 top-k routing, NVFP4 W4A4 routed experts and the gated BF16 shared expert. */
-public final class Qwen4Moe {
+public final class Qwen4Moe implements AutoCloseable {
     public record Routing(int[] experts,float[] weights) {}
     public record Result(float[] output,Routing routing) {}
     private final Qwen4Configuration config;
     private final ModelOptMatrix router,sharedGate,sharedUp,sharedDown,sharedRouter;
     private final ModelOptMatrix[] gates,ups,downs;
     private final float inputScale,intermediateScale;
+    private final MoeExecutor.Layer device;
+    private final MoeExecutor moeExecutor;
+    private boolean closed;
 
     public Qwen4Moe(Qwen4Configuration config,SafeTensorIndex index,PagedTensorReader reader,String prefix) throws IOException {
         this(config,index,reader,prefix,null);
     }
     public Qwen4Moe(Qwen4Configuration config,SafeTensorIndex index,PagedTensorReader reader,String prefix,MatrixExecutor executor) throws IOException {
+        this(config,index,reader,prefix,executor,null);
+    }
+    public Qwen4Moe(Qwen4Configuration config,SafeTensorIndex index,PagedTensorReader reader,String prefix,MatrixExecutor executor,MoeExecutor moeExecutor) throws IOException {
         this.config=config;
+        this.moeExecutor=moeExecutor;
         router=Qwen4CpuLayers.matrix(index,reader,prefix+".gate",config.experts(),config.dim(),executor);
         sharedGate=Qwen4CpuLayers.matrix(index,reader,prefix+".shared_expert.gate_proj",config.sharedExpertDim(),config.dim(),executor);
         sharedUp=Qwen4CpuLayers.matrix(index,reader,prefix+".shared_expert.up_proj",config.sharedExpertDim(),config.dim(),executor);
@@ -39,6 +47,7 @@ public final class Qwen4Moe {
             mid=Math.max(mid,scale(index,reader,name+".down_proj.input_scale"));
         }
         inputScale=in;intermediateScale=mid;
+        device=moeExecutor==null ? null : moeExecutor.newLayer(router,sharedGate,sharedUp,sharedDown,sharedRouter,gates,ups,downs,config.expertsPerToken(),config.normalizeTopK(),in,mid);
     }
     private static float scale(SafeTensorIndex index,PagedTensorReader reader,String name) throws IOException {
         var tensor=index.require(name);
@@ -62,7 +71,9 @@ public final class Qwen4Moe {
         return output;
     }
     public Result forward(float[] input) throws IOException {
+        if(closed) throw new IOException("MoE layer is closed");
         if(input.length!=config.dim()) throw new IllegalArgumentException("Wrong MoE input width");
+        if(device!=null) {var result=device.forward(input);return new Result(result.output(),new Routing(result.experts(),result.weights()));}
         float[] logits=Qwen4CpuLayers.project(router,input);
         Routing routing=route(logits,config.expertsPerToken(),config.normalizeTopK());
         var quantizedInput=router.quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(input,inputScale);
@@ -82,6 +93,11 @@ public final class Qwen4Moe {
         for(int i=0;i<accumulated.length;i++) accumulated[i]=bf(bf(accumulated[i])+bf(shared[i]*sharedWeight));
         return new Result(accumulated,routing);
     }
+    public float[] diagnosticRoutingWeights() throws IOException {
+        if(device==null) throw new IllegalStateException("No device routing weights");
+        return device.routingWeights();
+    }
+    @Override public void close() throws IOException {if(closed) return;closed=true;if(device!=null) device.close();}
     public static Routing route(float[] logits,int count,boolean normalize) {
         if(count<=0 || count>logits.length) throw new IllegalArgumentException("Invalid expert count");
         float maximum=Float.NEGATIVE_INFINITY;

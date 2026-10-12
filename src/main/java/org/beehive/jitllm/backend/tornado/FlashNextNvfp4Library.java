@@ -4,6 +4,7 @@ import java.lang.foreign.*;
 import java.lang.invoke.MethodHandle;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.ConcurrentHashMap;
 import uk.ac.manchester.tornado.api.common.*;
 import uk.ac.manchester.tornado.api.types.arrays.*;
 import uk.ac.manchester.tornado.runtime.common.TornadoXPUDevice;
@@ -21,6 +22,22 @@ public final class FlashNextNvfp4Library implements TornadoLibraryProvider {
     private static final AtomicLong CONTEXTS=new AtomicLong(),PLANS=new AtomicLong(),CALLS=new AtomicLong();
     public record Statistics(long contexts,long plans,long workspaceBytes,long calls) {}
     public static Statistics statistics() {return new Statistics(CONTEXTS.get(),PLANS.get(),CONTEXTS.get()*WORKSPACE_BYTES,CALLS.get());}
+    private record Registered(TornadoXPUDevice device,long owner,int rows,int columns,long weights,long scales) {}
+    private static final Map<Integer,Registered> REGISTERED=new ConcurrentHashMap<>();
+    public static int registeredWeights() {return REGISTERED.size();}
+    public static LibraryTaskDescriptor register(int id,int rows,int columns,ByteArray weights,ByteArray scales) {
+        return new LibraryTaskDescriptor().withLibrary(NAME).withFunction("register")
+                .withParameters(new Object[]{id,rows,columns,weights,scales}).withAccess(new Access[]{Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY});
+    }
+    /** CUDA 13 block scales cannot use pointer-array batching. Reuse one descriptor/workspace
+     * while enqueueing the selected GEMMs in order on the same device stream.
+     */
+    public static LibraryTaskDescriptor experts(int rows,int batch,int columns,int count,IntArray ids,ByteArray input,ByteArray inputScales,
+                                                FloatArray alphaBeta,BFloat16Array output,int inputStride,int scaleStride) {
+        Access[] access=new Access[11];Arrays.fill(access,Access.READ_ONLY);access[8]=Access.WRITE_ONLY;
+        return new LibraryTaskDescriptor().withLibrary(NAME).withFunction("experts")
+                .withParameters(new Object[]{rows,batch,columns,count,ids,input,inputScales,alphaBeta,output,inputStride,scaleStride}).withAccess(access);
+    }
     public static LibraryTaskDescriptor gemm(int rows,int batch,int columns,ByteArray weights,ByteArray weightScales,
                                             ByteArray input,ByteArray inputScales,FloatArray alphaBeta,BFloat16Array output) {
         if(rows<=0 || batch<=0 || columns<=0 || rows%16!=0 || columns%64!=0 || alphaBeta.getSize()<2
@@ -54,6 +71,17 @@ public final class FlashNextNvfp4Library implements TornadoLibraryProvider {
     private static final class Context implements LibraryContext {
         long handle,workspace;
         final Map<Shape,Plan> plans=new HashMap<>();
+        final Set<Integer> registrations=new HashSet<>();
+        void allocate() {
+            if(handle!=0) return;
+            try(var arena=Arena.ofConfined()) {
+                var slot=arena.allocate(8,8);check((int)Native.CREATE.invokeExact(slot),"NVFP4 cuBLASLt handle");handle=address(slot);
+                check((int)Native.MALLOC.invokeExact(slot,WORKSPACE_BYTES),"NVFP4 device workspace");workspace=address(slot);CONTEXTS.incrementAndGet();
+            } catch(Throwable error) {
+                if(handle!=0) try {check((int)Native.DESTROY.invokeExact(handle),"NVFP4 handle cleanup");handle=0;} catch(Throwable cleanup) {error.addSuppressed(cleanup);}
+                throw failure(error);
+            }
+        }
     }
     private record Shape(int rows,int batch,int columns) {}
     private static final class Plan implements AutoCloseable {
@@ -99,22 +127,22 @@ public final class FlashNextNvfp4Library implements TornadoLibraryProvider {
     @Override public String libraryName() {return NAME;}
     @Override public boolean canHandle(TornadoXPUDevice device) {return device instanceof TornadoNativeStreamSupport;}
     @Override public LibraryContext createContext(TornadoXPUDevice device,long id) {
-        var context=new Context();
-        try(var arena=Arena.ofConfined()) {
-            var slot=arena.allocate(8,8);check((int)Native.CREATE.invokeExact(slot),"NVFP4 cuBLASLt handle");context.handle=address(slot);
-            check((int)Native.MALLOC.invokeExact(slot,WORKSPACE_BYTES),"NVFP4 device workspace");context.workspace=address(slot);
-            CONTEXTS.incrementAndGet();return context;
-        } catch(Throwable error) {
-            if(context.handle!=0) try {check((int)Native.DESTROY.invokeExact(context.handle),"NVFP4 handle cleanup");} catch(Throwable cleanup) {error.addSuppressed(cleanup);}
-            throw failure(error);
-        }
+        return new Context();
     }
     private static Shape shape(Object[] args) {return new Shape((Integer)args[0],(Integer)args[1],(Integer)args[2]);}
     @Override public void prepare(LibraryTaskDescriptor descriptor,LibraryContext nativeContext) {
-        var context=(Context)nativeContext;var shape=shape(descriptor.getParameters());
+        if("register".equals(descriptor.getFunctionName())) return;
+        var context=(Context)nativeContext;context.allocate();var shape=shape(descriptor.getParameters());
         context.plans.computeIfAbsent(shape,key->new Plan(context,key));
     }
     @Override public void dispatch(String function,LibraryInvocation invocation) {
+        if("register".equals(function)) {
+            int id=(Integer)invocation.getArg(0);var context=(Context)invocation.getContext();
+            var record=new Registered(invocation.getDevice(),invocation.getExecutionPlanId(),(Integer)invocation.getArg(1),(Integer)invocation.getArg(2),invocation.getDevicePointer(3),invocation.getDevicePointer(4));
+            var previous=REGISTERED.putIfAbsent(id,record);if(previous!=null && !previous.equals(record)) throw new IllegalStateException("Conflicting NVFP4 resource id");
+            context.registrations.add(id);return;
+        }
+        if("experts".equals(function)) {dispatchExperts(invocation);return;}
         if(!"gemm".equals(function)) throw new IllegalArgumentException("Unsupported NVFP4 function "+function);
         var context=(Context)invocation.getContext();var shape=new Shape((Integer)invocation.getArg(0),(Integer)invocation.getArg(1),(Integer)invocation.getArg(2));
         var plan=context.plans.get(shape);if(plan==null) throw new IllegalStateException("NVFP4 plan was not prepared before capture");
@@ -127,10 +155,29 @@ public final class FlashNextNvfp4Library implements TornadoLibraryProvider {
             CALLS.incrementAndGet();
         } catch(Throwable error) {throw failure(error);}
     }
+    private static void dispatchExperts(LibraryInvocation invocation) {
+        var context=(Context)invocation.getContext();var shape=new Shape((Integer)invocation.getArg(0),(Integer)invocation.getArg(1),(Integer)invocation.getArg(2));
+        var plan=context.plans.get(shape);if(plan==null) throw new IllegalStateException("Expert plan was not prepared");
+        int count=(Integer)invocation.getArg(3),inputStride=(Integer)invocation.getArg(9),scaleStride=(Integer)invocation.getArg(10);
+        var ids=(IntArray)invocation.getArg(4);long stream=((TornadoNativeStreamSupport)invocation.getDevice()).getNativeStream(invocation.getExecutionPlanId());
+        try {
+            for(int i=0;i<count;i++) {
+                var weight=REGISTERED.get(ids.get(i));
+                if(weight==null || !weight.device.equals(invocation.getDevice()) || weight.rows!=shape.rows || weight.columns!=shape.columns)
+                    throw new IllegalStateException("Invalid or expired expert weight resource "+ids.get(i));
+                plan.pointer(17,weight.scales);plan.pointer(18,invocation.getDevicePointer(6)+(long)i*scaleStride);
+                long alpha=invocation.getDevicePointer(7)+8L*i,output=invocation.getDevicePointer(8)+2L*i*shape.batch*shape.rows;
+                check((int)Native.MATMUL.invokeExact(context.handle,plan.desc,alpha,weight.weights,plan.a,invocation.getDevicePointer(5)+(long)i*inputStride,plan.b,
+                        alpha+4,output,plan.c,output,plan.c,plan.algorithm,context.workspace,WORKSPACE_BYTES,stream),"NVFP4 selected expert GEMM");CALLS.incrementAndGet();
+            }
+        } catch(Throwable error) {throw failure(error);}
+    }
     @Override public void destroyContext(LibraryContext nativeContext) {
         var context=(Context)nativeContext;
         try {
+            for(int id:context.registrations) REGISTERED.remove(id);context.registrations.clear();
             for(var plan:context.plans.values()) plan.close();context.plans.clear();
+            if(context.handle==0) return;
             check((int)Native.FREE.invokeExact(context.workspace),"NVFP4 workspace close");context.workspace=0;
             check((int)Native.DESTROY.invokeExact(context.handle),"NVFP4 handle close");context.handle=0;CONTEXTS.decrementAndGet();
         } catch(Throwable error) {throw failure(error);}

@@ -256,15 +256,15 @@ projections retain their encoded activations on the device.
 `gpu-native-nvfp4-moe-parity.json` passes all three strict real MoE cases exactly,
 with 90 native GEMMs and 105 total projections. This resolves the recorded
 numeric difference for these native cases. `moe-parity.json` remains the
-historical failing host/scalar comparison. Routing, SwiGLU/shared gates and
-MoE finalization still execute on the host, and broader trajectories remain
-unqualified. `gpu-nvfp4-native-pre-quantization-fix.json` preserves the three
+historical failing host/scalar comparison. This standalone projection path retains host routing, gates and finalization.
+The complete device MoE implementation below removes those boundaries; broader
+trajectories remain unqualified. `gpu-nvfp4-native-pre-quantization-fix.json` preserves the three
 activation-byte mismatches that identified the encode rounding problem.
 
 Set `gpu_nvfp4: true` with `gpu_projections: true` to select this native path.
 The main `gpu_cache_bytes` budget is split equally between packed native plans
 (including their workspaces) and dense/scalar projections; the separate BF16
-GEMM cache remains capped at 256 MiB. The normal GPU model provider, device
+GEMM cache remains capped at 256 MiB. The normal GPU model provider, cross-layer device
 plan fusion, efficient batched full-model prefill, FP8 draft tensor cores,
 long-context/concurrent serving, MTP and multimodal/chat replay remain required.
 `full-gpu-nvfp4-rollback-conformance.json` checks the same 16-token ChatML
@@ -279,6 +279,42 @@ run. Layer-plan fusion and grouped expert execution remain needed for practical
 latency and memory use.
 
 The binding follows [NVIDIA's CUDA 13 cuBLASLt block-scaling requirements](https://docs.nvidia.com/cuda/archive/13.0.0/cublas/index.html#d-block-scaling-factors-layout).
+
+
+MoE routing, target/shared SwiGLU gates and finalization now execute on CUDA.
+Each layer retains shared/router BF16 weights and reusable compute plans. After
+routing, only selected expert IDs/weights cross back to stage cache entries;
+expert intermediates remain on the device. The expert LRU keeps packed up/gate
+and down matrices independently of the compute plans, with pinned leases
+through forward execution. Up/gate matrices share one native GEMM. Selected
+GEMMs enqueue on the same stream using cached descriptors and one 1 MiB native
+workspace per layer. CUDA 13 pointer-array batching does not support these
+block scales, so this uses repeated native launches inside one library task.
+
+`gpu-device-moe-parity.json` checks the same three strict MoE cases with full
+device math and a 52 MiB total budget. All outputs are exact; replay is exact,
+five cache evictions preserve results, intermediate downloads remain zero,
+and resources return to zero after close. Only one layer plan is built across
+six forwards; the 120 native GEMMs do not construct per-expert compute plans.
+The existing native-GEMM compatibility suite still passes all 12 cases exactly.
+
+`full-gpu-device-moe-rollback-conformance.json` and
+`full-gpu-device-moe-bf-prefill-conformance.json` match fresh uncached staged
+output `[17, 478, 220]` for the 16-token failure/retry and 17-token BF16-prefill
+cases. They run 885/912 device MoE forwards and 17,700/18,240 native expert
+GEMMs, with no expert-intermediate downloads. Engine/factory close releases
+MoE layer buffers, expert registrations and native workspaces/descriptors.
+The file reader remains at 1 MiB. The recorded runs take about 104 and 150
+seconds; the earlier native diagnostic took about 403 seconds. These are short
+case timings, not a general performance benchmark or production qualification.
+
+Set `gpu_moe: true` with `gpu_projections: true` in the diagnostic request.
+The main cache budget is split equally between dense/scalar projections and
+MoE resources, including shared/router weights, intermediate buffers, native
+workspace and packed expert residency. The standalone native NVFP4 projection
+path remains available. Full layer-to-layer device plan fusion, efficient
+batched prefill, the GPU model/API provider, MTP/FP8 draft math, native vision
+and exact chat replay, full context/concurrency and deployment are still needed.
 
 ## Build and reproduce checks
 
@@ -405,7 +441,7 @@ and an optional `cache_bytes` budget.
 1. Broaden text conformance beyond the successful short ChatML case. Broaden
    the native MoE numeric checks, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
-2. Complete GPU QSA provider/long-context qualification, implement GPU MoE, and fuse the native layer plans,
+2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
    including grouped native NVFP4 projections and FP8 draft tensor cores. Connect that plan
    to the normal model provider; it currently refuses full GPU loads explicitly.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index

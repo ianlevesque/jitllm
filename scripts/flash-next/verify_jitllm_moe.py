@@ -16,7 +16,7 @@ ROOT=Path(__file__).resolve().parents[2]
 PREFIX="model.language_model.layers.0.mlp."
 
 
-def verify(model,gpu=False,native=False,device=1):
+def verify(model,gpu=False,native=False,device=1,moe=False):
     torch.set_num_threads(4);torch.cuda.set_device(next(i for i in range(torch.cuda.device_count()) if "5090" in torch.cuda.get_device_name(i)))
     mapping=json.loads((model/"model.safetensors.index.json").read_text())["weight_map"]
     config=json.loads((model/"config.json").read_text())["text_config"]
@@ -65,7 +65,7 @@ def verify(model,gpu=False,native=False,device=1):
         expected.append((routed+shared).float())
     with tempfile.TemporaryDirectory(prefix="jitllm-moe-") as temp:
         request=Path(temp)/"request.json"
-        request.write_text(json.dumps({"mode":"moe","inputs":[x.float().tolist() for x in inputs],"gpu_nvfp4":native,"device":device}))
+        request.write_text(json.dumps({"mode":"moe","inputs":[x.float().tolist() for x in inputs],"gpu_nvfp4":native,"device":device,"gpu_moe":moe}))
         command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"moe-probe",str(model),str(request)] if gpu else ["java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
         result=subprocess.run(command,capture_output=True,text=True)
         if result.returncode:raise RuntimeError(result.stderr)
@@ -81,7 +81,10 @@ def verify(model,gpu=False,native=False,device=1):
         except AssertionError as mismatch:failures.append({"step":step,"error":str(mismatch)})
         comparisons.append({"step":step,"experts":routes[step],"max_absolute_error":difference.abs().max().item(),"rmse":difference.square().mean().sqrt().item(),
                             "relative_rmse":difference.square().mean().sqrt().item()/reference.square().mean().sqrt().item(),"exact_fraction":(difference==0).float().mean().item()})
-    return {"checkpoint":str(model.resolve()),"reference":"FlashInfer CUTLASS NVFP4 fused MoE + BF16 shared expert","device":torch.cuda.get_device_name(),"gpu_projections":actual.get("gpu_projections"),"native_nvfp4":native,
+    if moe:
+        assert actual["gpu_moe"]["kernel_ns"]>0 and actual["gpu_moe"]["intermediate_download_bytes"]==0 and actual["gpu_moe_resident_bytes_after_close"]==0
+        assert actual["gpu_moe"]["evictions"]>0 and actual["gpu_moe_layer_builds"]==1 and actual["gpu_moe_peak_bytes"]<=52<<20
+    return {"checkpoint":str(model.resolve()),"reference":"FlashInfer CUTLASS NVFP4 fused MoE + BF16 shared expert","device":torch.cuda.get_device_name(),"gpu_projections":actual.get("gpu_projections"),"native_nvfp4":native,"gpu_moe":actual.get("gpu_moe"),"gpu_moe_resident_bytes_after_close":actual.get("gpu_moe_resident_bytes_after_close"),"gpu_moe_peak_bytes":actual.get("gpu_moe_peak_bytes"),"gpu_moe_layer_builds":actual.get("gpu_moe_layer_builds"),
             "input_scale":input_scale,"intermediate_scale":mid_scale,"activation_quantization":"NVFP4 W4A4","fused_finalize":False,"rtol":.008,"atol":.0001,
             "cache_resident_bytes":actual["cache_resident_bytes"],"passed":not failures,"failures":failures,"comparisons":comparisons}
 
@@ -89,9 +92,11 @@ def verify(model,gpu=False,native=False,device=1):
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("model",type=Path);parser.add_argument("--output",type=Path)
     parser.add_argument("--gpu-projections",action="store_true");parser.add_argument("--native-nvfp4",action="store_true");parser.add_argument("--device",type=int,default=1)
+    parser.add_argument("--gpu-moe",action="store_true")
     args=parser.parse_args()
     if args.native_nvfp4 and not args.gpu_projections:parser.error("--native-nvfp4 requires --gpu-projections")
-    result=verify(args.model,args.gpu_projections,args.native_nvfp4,args.device);report=json.dumps(result,indent=2)
+    if args.gpu_moe and not args.gpu_projections:parser.error("--gpu-moe requires --gpu-projections")
+    result=verify(args.model,args.gpu_projections,args.native_nvfp4,args.device,args.gpu_moe);report=json.dumps(result,indent=2)
     if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(report+"\n")
     print(report)
     if not result["passed"]:raise SystemExit(1)

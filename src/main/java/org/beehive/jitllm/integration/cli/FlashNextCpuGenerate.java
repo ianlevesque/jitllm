@@ -9,6 +9,7 @@ import org.beehive.jitllm.backend.tornado.FlashNextDeltaNetExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextLayerExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextQsaExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextNvfp4Library;
+import org.beehive.jitllm.backend.tornado.FlashNextMoeExecutor;
 
 /** Native full-model reference runner; this host path precedes the device serving integration. */
 public final class FlashNextCpuGenerate {
@@ -22,15 +23,20 @@ public final class FlashNextCpuGenerate {
         boolean layerOps=Boolean.TRUE.equals(request.get("gpu_hc_ple"));
         boolean sparse=Boolean.TRUE.equals(request.get("gpu_qsa"));
         boolean packed=Boolean.TRUE.equals(request.get("gpu_nvfp4"));
+        boolean gpuMoe=Boolean.TRUE.equals(request.get("gpu_moe"));
+        long cacheBudget=((Number)request.getOrDefault("gpu_cache_bytes",16L<<30)).longValue();
+        long projectionBudget=gpuMoe ? cacheBudget/2 : cacheBudget;
         if(packed && !projected) throw new IllegalArgumentException("Native NVFP4 requires GPU projections");
-        try(var executor=projected ? new FlashNextMatrixExecutor(((Number)request.getOrDefault("device",1)).intValue(),((Number)request.getOrDefault("gpu_cache_bytes",16L<<30)).longValue(),packed) : null;
+        if(gpuMoe && !projected) throw new IllegalArgumentException("GPU MoE requires GPU projections");
+        try(var executor=projected ? new FlashNextMatrixExecutor(((Number)request.getOrDefault("device",1)).intValue(),projectionBudget,packed && !gpuMoe) : null;
             var recurrence=recurrent ? new FlashNextDeltaNetExecutor(((Number)request.getOrDefault("device",1)).intValue(),
                     ((Number)request.getOrDefault("checkpoint_capacity",8)).intValue(),((Number)request.getOrDefault("gpu_state_bytes",4L<<30)).longValue()) : null;
             var layers=layerOps ? new FlashNextLayerExecutor(((Number)request.getOrDefault("device",1)).intValue(),
                     ((Number)request.getOrDefault("checkpoint_capacity",8)).intValue(),((Number)request.getOrDefault("gpu_layer_bytes",64L<<20)).longValue()) : null;
             var attention=sparse ? new FlashNextQsaExecutor(((Number)request.getOrDefault("device",1)).intValue(),
                     ((Number)request.getOrDefault("checkpoint_capacity",8)).intValue(),((Number)request.getOrDefault("gpu_qsa_bytes",4L<<30)).longValue()) : null;
-            var engine=new Qwen4CpuEngine(Path.of(args[0]),-1,1048576,(loaded,total)->System.err.println("Loaded layer "+loaded+"/"+total),executor,recurrence,layers,attention)) {
+            var moe=gpuMoe ? new FlashNextMoeExecutor(((Number)request.getOrDefault("device",1)).intValue(),cacheBudget-projectionBudget) : null;
+            var engine=new Qwen4CpuEngine(Path.of(args[0]),-1,1048576,(loaded,total)->System.err.println("Loaded layer "+loaded+"/"+total),executor,recurrence,layers,attention,moe)) {
             List<Integer> tokens;
             if(request.containsKey("input_tokens")) tokens=((List<?>)request.get("input_tokens")).stream().map(v->((Number)v).intValue()).toList();
             else tokens=engine.tokenizer().encode((String)request.get("prompt"),engine.tokenizer().getSpecialTokens().keySet());
@@ -72,8 +78,8 @@ public final class FlashNextCpuGenerate {
             if(rollbackProbe) report.put("rollback_probe",Map.of("injected_layer",((Number)request.getOrDefault("rollback_layer",20)).intValue(),"position_restored",true,"transaction_checkpoints_released",true));
             if(executor!=null) {
                 var stats=executor.statistics();
-                report.put("execution","GPU weight projections"+(recurrent ? " and DeltaNet" : "")+(layerOps ? " and HC/PLE" : "")+(sparse ? " and QSA" : "")
-                        +"; "+(sparse ? "MoE nonlinear work remains on the host" : "QSA and MoE nonlinear work remains on the host"));
+                report.put("execution","GPU weight projections"+(recurrent ? " and DeltaNet" : "")+(layerOps ? " and HC/PLE" : "")+(sparse ? " and QSA" : "")+(gpuMoe ? " and MoE" : "")
+                        +"; "+(gpuMoe ? "activation vectors still cross host plan boundaries" : sparse ? "MoE nonlinear work remains on the host" : "QSA and MoE nonlinear work remains on the host"));
                 report.put("device",executor.deviceName());report.put("gpu_cache_bytes",stats.residentBytes());
                 report.put("gpu_uploads",stats.uploads());report.put("gpu_evictions",stats.evictions());report.put("gpu_executions",stats.executions());report.put("gpu_kernel_ns",stats.kernelNanos());
                 report.put("bf16_gemm_cache_bytes",stats.bf16ResidentBytes());report.put("bf16_gemm_executions",stats.bf16Executions());
@@ -100,6 +106,13 @@ public final class FlashNextCpuGenerate {
                 operations.put("kv_host_download_bytes",stats.kvHostDownloadBytes());operations.put("index_host_download_bytes",stats.indexHostDownloadBytes());
                 report.put("gpu_qsa",operations);
             }
+            if(moe!=null) {
+                var m=moe.statistics();var operations=new LinkedHashMap<String,Object>();
+                operations.put("resident_bytes",m.residentBytes());operations.put("layer_bytes",m.layerBytes());operations.put("expert_bytes",m.expertBytes());operations.put("layers",m.layers());
+                operations.put("uploads",m.uploads());operations.put("evictions",m.evictions());operations.put("expert_file_bytes",m.expertFileBytes());
+                operations.put("forwards",m.forwards());operations.put("kernel_ns",m.kernelNanos());operations.put("route_download_bytes",m.idDownloadBytes());operations.put("intermediate_download_bytes",m.intermediateDownloadBytes());
+                report.put("gpu_moe",operations);
+            }
             sequence.close();
             if(attention!=null) {
                 var stats=attention.statistics();
@@ -110,6 +123,11 @@ public final class FlashNextCpuGenerate {
             if(layers!=null) {
                 report.put("gpu_ple_sessions_after_sequence_close",layers.statistics().pleSessions());
                 engine.close();report.put("gpu_layer_bytes_after_engine_close",layers.statistics().residentBytes());
+            }
+            if(moe!=null) {
+                engine.close();report.put("gpu_moe_layer_bytes_after_engine_close",moe.statistics().layerBytes());moe.close();
+                if(moe.statistics().residentBytes()!=0 || FlashNextNvfp4Library.registeredWeights()!=0) throw new AssertionError("MoE cache/resources leaked");
+                report.put("gpu_moe_bytes_after_close",moe.statistics().residentBytes());
             }
             if(packed) {
                 executor.close();var nativeStats=FlashNextNvfp4Library.statistics();

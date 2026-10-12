@@ -1,0 +1,70 @@
+{
+  "jitllm": {
+    "tests_run": 803,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "launcher": {
+    "tests_run": 112,
+    "passed": true
+  },
+  "portable_checkpoint_fixtures": {
+    "tests_run": 14,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 72,
+    "fork_and_overlay_exact_match": true
+  },
+  "device_moe": {
+    "cases": 3,
+    "forwards": 6,
+    "all_outputs_exact": true,
+    "replay_exact": true,
+    "cache_evictions": 5,
+    "peak_bytes": 54250332,
+    "budget_bytes": 54525952,
+    "compute_layer_builds": 1,
+    "native_gemms": 120,
+    "intermediate_download_bytes": 0,
+    "resident_bytes_after_close": 0
+  },
+  "native_binding_regression": {
+    "cases": 12,
+    "all_exact": true,
+    "passed": true
+  },
+  "full_model_cases": [
+    {
+      "prompt_tokens": 16,
+      "injected_failure_layer": 20,
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "reference_cached_tokens": 0,
+      "elapsed_seconds": 103.880564506,
+      "moe_forwards": 885,
+      "native_expert_gemms": 17700,
+      "passed": true
+    },
+    {
+      "prompt_tokens": 17,
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "reference_cached_tokens": 0,
+      "elapsed_seconds": 149.874889189,
+      "moe_forwards": 912,
+      "native_expert_gemms": 18240,
+      "bf16_gemm_executions": 3298,
+      "passed": true
+    }
+  ],
+  "scope": "Device MoE subsystem and two short full-model cases. Cross-layer device fusion, efficient batched prefill, GPU API/provider, MTP, vision/chat replay and full-context/concurrent serving remain unqualified."
+}
