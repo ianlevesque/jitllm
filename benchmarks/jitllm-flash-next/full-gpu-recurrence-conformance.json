@@ -1,0 +1,60 @@
+{
+  "input_tokens": [
+    248045,
+    846,
+    198,
+    17,
+    10,
+    17,
+    19279,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "generated_tokens": [
+    17,
+    478,
+    220
+  ],
+  "text": "2 + ",
+  "elapsed_seconds": 191.530941636,
+  "cache_resident_bytes": 1048576,
+  "trace": [],
+  "execution": "GPU weight projections and DeltaNet with host HC/PLE/QSA/MoE",
+  "device": "NVIDIA GeForce RTX 5090",
+  "gpu_cache_bytes": 17179387356,
+  "gpu_uploads": 10256,
+  "gpu_evictions": 370,
+  "gpu_executions": 39819,
+  "gpu_kernel_ns": 25663935580,
+  "gpu_recurrence": {
+    "kernel_ns": 166445524,
+    "restores": 0,
+    "state_host_download_bytes": 0,
+    "forwards": 648,
+    "live_snapshots": 0,
+    "sessions": 36,
+    "resident_bytes": 1071175968,
+    "checkpoints": 648
+  },
+  "gpu_recurrence_after_sequence_close_bytes": 0,
+  "passed": true,
+  "scope": "One 16-token ChatML prompt and three greedy response tokens; GPU weight projections and DeltaNet with host HC/PLE/QSA/MoE.",
+  "reference_tokens": [
+    17,
+    478,
+    220
+  ],
+  "reference_text": "2 + ",
+  "reference_cached_tokens": 0,
+  "reference_prompt_tokens": 16,
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "checkpoint_capacity": 8,
+  "gpu_state_budget_bytes": 4294967296
+}

@@ -27,6 +27,7 @@ final class LegacySessionRuntime implements SessionRuntime {
     private final int initialToken;
 
     private TornadoVMMasterPlan plan;
+    private boolean closed;
 
     LegacySessionRuntime(
             Model model,
@@ -155,10 +156,21 @@ final class LegacySessionRuntime implements SessionRuntime {
     /** This session built its plan, so this session frees it. */
     @Override
     public void close() {
-        if (plan != null) {
-            plan.freeTornadoExecutionPlan();
-            plan = null;
+        if (closed) return;
+        closed = true;
+        try {
+            if (plan != null) {
+                plan.freeTornadoExecutionPlan();
+                plan = null;
+            }
+        } finally {
+            try {
+                if (state instanceof AutoCloseable resource) {
+                    try { resource.close(); }
+                    catch (RuntimeException failure) { throw failure; }
+                    catch (Exception failure) { throw new IllegalStateException("Cannot release session state", failure); }
+                }
+            } finally { lease.close(); }
         }
-        lease.close();
     }
 }

@@ -75,4 +75,11 @@ public class Qwen4PrefillPrecisionTest {
             for(float value:output) assertEquals(.5f,value,.001f);
         }
     }
+    @Test public void recurrentCheckpointIsOwnedByOneSequenceAndCloseRejectsForward() throws Exception {
+        try(var fixture=new Fixture();var first=fixture.delta.newState();var second=fixture.delta.newState();var saved=first.snapshot()) {
+            assertThrows(IllegalArgumentException.class,()->second.restore(saved));
+            first.close();assertThrows(IllegalStateException.class,()->fixture.delta.forward(input(),first));
+            assertThrows(IllegalStateException.class,first::snapshot);
+        }
+    }
 }

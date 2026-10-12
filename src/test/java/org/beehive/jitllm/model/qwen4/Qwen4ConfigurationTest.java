@@ -10,8 +10,10 @@ public final class Qwen4ConfigurationTest {
         var config = load(CONFIG, -1);
         class Sequence implements org.beehive.jitllm.inference.state.Qwen4SequenceState {
             int position = 3;
+            boolean closed;
             public int position() { return position; }
             public void reset() { position = 0; }
+            public void close() { closed = true; }
         }
         var first = new Sequence(); var second = new Sequence();
         var state = org.beehive.jitllm.inference.state.State.withPrefillBatchSize(1,
@@ -20,6 +22,7 @@ public final class Qwen4ConfigurationTest {
         assertEquals(config.vocabularySize(), state.logits.size());
         assertThrows(CloneNotSupportedException.class, state::clone);
         state.resetSequenceState(); assertEquals(0, first.position()); assertEquals(3, second.position());
+        state.close(); assertTrue(first.closed); assertFalse(second.closed);
     }
     static final String CONFIG = """
         {"model_type":"qwen4_exp","text_config":{
@@ -52,6 +55,7 @@ public final class Qwen4ConfigurationTest {
         assertEquals(1,config.mtpLayers()); assertEquals(1,config.keyValueLayerCount());
         assertTrue(config.isRecurrentLayer(0)); assertFalse(config.isRecurrentLayer(1));
         assertFalse(config.hasPle(0)); assertTrue(config.hasPle(1));
+        assertEquals(1792L,config.recurrentStateBytes());
     }
     @Test public void requestedContextKeepsNativeCeiling() throws Exception {
         var config=load(CONFIG,8);

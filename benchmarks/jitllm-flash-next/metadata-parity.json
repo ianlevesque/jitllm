@@ -20,7 +20,7 @@
     ],
     "experts": 512,
     "experts_per_token": 10,
-    "recurrent_state_bytes": 115642368,
+    "recurrent_state_bytes": 118038528,
     "mtp_layers": 1
   }
 }

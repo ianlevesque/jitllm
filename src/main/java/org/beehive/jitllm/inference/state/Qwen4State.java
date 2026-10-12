@@ -5,7 +5,7 @@ import org.beehive.jitllm.tensor.standard.ArrayFloatTensor;
 import org.beehive.jitllm.tensor.standard.FloatTensor;
 
 /** Host adapter; the sequence owns lazy KV allocation rather than the legacy dense cache. */
-public final class Qwen4State extends State {
+public final class Qwen4State extends State implements AutoCloseable {
     private final Qwen4SequenceState sequence;
 
     public Qwen4State(Configuration config, int batchsize, Qwen4SequenceState sequence) {
@@ -25,6 +25,7 @@ public final class Qwen4State extends State {
     }
 
     @Override public void resetSequenceState() { sequence.reset(); }
+    @Override public void close() throws java.io.IOException { sequence.close(); }
     @Override public void setPosition(int position) {
         if (position != sequence.position()) throw new IllegalArgumentException("Sequence position mismatch");
     }

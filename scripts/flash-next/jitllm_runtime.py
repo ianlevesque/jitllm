@@ -41,7 +41,7 @@ def main():
     probe.add_argument("model", type=Path)
     probe.add_argument("--matrix", default="model.language_model.layers.0.mlp.experts.0.gate_proj")
     probe.add_argument("--device", type=int, default=1, help="TornadoVM device ordinal; inspect devices first")
-    for name in ("generate", "model-probe", "cache-probe", "api-probe"):
+    for name in ("generate", "model-probe", "cache-probe", "api-probe", "recurrent-probe"):
         runner = commands.add_parser(name)
         runner.add_argument("model", type=Path)
         if name != "api-probe":
@@ -61,7 +61,7 @@ def main():
             inputs = [str(args.model), args.matrix, str(args.device)]
         else:
             main_class = {"generate": "FlashNextCpuGenerate", "model-probe": "FlashNextModelProbe",
-                          "cache-probe": "FlashNextCacheProbe", "api-probe": "FlashNextApiProbe"}[args.command]
+                          "cache-probe": "FlashNextCacheProbe", "api-probe": "FlashNextApiProbe", "recurrent-probe": "FlashNextDeltaNetProbe"}[args.command]
             inputs = [str(args.model)]
             if args.command != "api-probe":
                 inputs.append(str(args.request))

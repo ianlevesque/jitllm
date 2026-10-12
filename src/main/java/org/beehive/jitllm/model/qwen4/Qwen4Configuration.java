@@ -64,8 +64,9 @@ public record Qwen4Configuration(int dim, int hiddenDim, int numberOfLayers,
     @Override public long recurrentStateBytes() {
         long layers = numberOfLayers - keyValueLayerCount();
         long delta = (long) linearValueHeads * linearKeyDim * linearValueDim * Float.BYTES;
-        long conv = (long) linearQkvDim() * (linearConvKernel - 1) * Short.BYTES;
-        long ple = (long) pleLayers.size() * hyperDim() * (pleConvKernel - 1) * ngramSize * Short.BYTES;
+        // Values are BF16-rounded, but the current host and CUDA state buffers store floats.
+        long conv = (long) linearQkvDim() * (linearConvKernel - 1) * Float.BYTES;
+        long ple = (long) pleLayers.size() * hyperDim() * (pleConvKernel - 1) * ngramSize * Float.BYTES;
         return Math.addExact(Math.multiplyExact(layers, delta + conv), ple);
     }
 

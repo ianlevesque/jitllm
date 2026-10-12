@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PREFIX = "model.language_model.layers.0.linear_attn."
 
 
-def verify(model):
+def verify(model,gpu_recurrence=False,device=1,gpu_projections=False):
     torch.set_num_threads(4)
     mapping = json.loads((model / "model.safetensors.index.json").read_text())["weight_map"]
     def weight(name):
@@ -61,12 +62,15 @@ def verify(model):
         expected.append(F.linear(normalized.flatten(),out_weight).float())
     with tempfile.TemporaryDirectory(prefix="jitllm-deltanet-") as temp:
         request = Path(temp)/"request.json"
-        request.write_text(json.dumps({"mode":"gdn","inputs":[x.float().tolist() for x in inputs]}))
-        result = subprocess.run(["java","-Xmx1g","-cp",str(ROOT/"target/classes"),
-                                 "org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)],capture_output=True,text=True)
+        request.write_text(json.dumps({"mode":"gdn","inputs":[x.float().tolist() for x in inputs],"device":device,"gpu_projections":gpu_projections}))
+        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"recurrent-probe",str(model),str(request)] if gpu_recurrence else [
+                "java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        result = subprocess.run(command,capture_output=True,text=True)
         if result.returncode:
             raise RuntimeError(result.stderr)
-        actual = json.loads(result.stdout)
+        lines=[line for line in result.stdout.splitlines() if line.startswith('{"')]
+        if len(lines)!=1:raise RuntimeError("Expected one DeltaNet report: "+result.stdout)
+        actual = json.loads(lines[0])
     comparisons = []
     for step,(reference,values) in enumerate(zip(expected,actual["outputs"],strict=True)):
         observed = torch.tensor(values)
@@ -75,17 +79,24 @@ def verify(model):
                             "rmse":differences.square().mean().sqrt().item(),"exact_fraction":(differences==0).float().mean().item()})
         torch.testing.assert_close(observed,reference,rtol=.008,atol=.001,msg=f"DeltaNet step {step}")
     assert actual["cache_resident_bytes"]<=1048576
-    return {"checkpoint":str(model.resolve()),"steps":len(inputs),"key_heads":heads,"value_heads":value_heads,
+    report = {"checkpoint":str(model.resolve()),"steps":len(inputs),"key_heads":heads,"value_heads":value_heads,
             "head_mapping":"repeat_interleave","temporal_dtype":"F32","activation_dtype":"BF16","output_gate":"sigmoid", "rtol":.008,"atol":.001,
             "rollback_exact":actual["rollback_exact"],"reset_exact":actual["reset_exact"],"cache_resident_bytes":actual["cache_resident_bytes"],"comparisons":comparisons}
+    if gpu_recurrence:
+        assert actual["gpu_kernel_ns"]>0 and actual["state_host_download_bytes"]==0 and actual["resident_bytes_after_close"]==0
+        report["gpu_recurrence"]={key:value for key,value in actual.items() if key not in ("outputs","cache_resident_bytes")}
+    return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model",type=Path)
     parser.add_argument("--output",type=Path)
+    parser.add_argument("--gpu-recurrence",action="store_true")
+    parser.add_argument("--gpu-projections",action="store_true")
+    parser.add_argument("--device",type=int,default=1)
     args = parser.parse_args()
-    report = json.dumps(verify(args.model),indent=2)
+    report = json.dumps(verify(args.model,args.gpu_recurrence,args.device,args.gpu_projections),indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True,exist_ok=True)
         args.output.write_text(report+"\n")

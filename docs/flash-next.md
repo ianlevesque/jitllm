@@ -3,7 +3,7 @@
 The goal is native JITLLM inference and serving of
 `nvidia/Qwen3.8-Flash-Next-NVFP4`, with bounded NVMe PLE/Engram staging and the
 features of the original launcher's `qwen-flash-next-staged` profile. The full 48-layer text pipeline now executes on the host and with native GPU
-weight projections. The recorded 16-token ChatML
+weight projections and DeltaNet state updates. The recorded 16-token ChatML
 comparison now matches three greedy staged-reference tokens exactly; broader
 full-model correctness remains to be qualified. The normal JITLLM loader/API can load the
 checkpoint on CPU; production GPU serving is still under implementation.
@@ -42,6 +42,12 @@ The tested CUDA/JDK 25 TornadoVM revision is
   L2-normalized Q/K, FP32 decay/delta recurrence, consecutive key/value head
   expansion, sigmoid-gated RMS normalization and output projection. Its convolution
   and temporal state support exact rollback/replay/reset.
+- Optional TornadoVM CUDA DeltaNet execution: BF16 causal convolution,
+  Q/K normalization, FP32 recurrence, and sigmoid-gated RMS normalization.
+  Request-owned convolution/recurrent state stays on the GPU. A bounded device
+  checkpoint pool handles nested rollback and reset without downloading recurrent
+  state. The engine releases transaction checkpoints after every token, and API
+  session close releases owned sequence resources. The host path remains available.
 - Host QSA compression, sparse top-k block selection, GQA attention and MRoPE,
   with unfinished-block tails, fused normalization/RoPE precision and FP8-rounded
   KV values. Initial prefill uses a temporary BF16 view while retaining FP8-rounded
@@ -82,7 +88,14 @@ reset. Host model integration is complete; full device execution remains.
 `deltanet-parity.json` checks 12 sequential steps with real layer-0 weights
 against an independent PyTorch recurrence. Maximum observed absolute output
 difference is 0.0009765625; convolution and recurrent rollback/reset checks are
-exact. This is also host execution, with GPU integration still pending.
+exact. This report covers the host path.
+`gpu-deltanet-parity.json` and `gpu-deltanet-projected-parity.json` now cover the
+CUDA recurrence against the same independent PyTorch reference, with host and
+GPU projections respectively. Both pass 12 steps at the original rtol 0.008 /
+atol 0.001; maximum observed error is 0.0009765625. The CUDA probe checks nested
+checkpoint replay, exact reset, independent sequences, pool exhaustion, rejected
+foreign/released checkpoints, and zero tracked memory after close. The projected
+check also verifies state-budget refusal. Neither path downloads recurrent state.
 
 `qsa-fp8-fused-parity.json` covers 12 steps with mixed MRoPE coordinates,
 FP8-rounded KV, exact sparse selections and state replay/reset. Its gate oracle
@@ -113,6 +126,20 @@ The decisive correction was using the checkpoint's sigmoid recurrent output
 gate rather than the inherited SiLU default. Fresh BF16 prefill K/V and fused
 attention arithmetic were also corrected.
 
+`full-gpu-recurrence-conformance.json` repeats that same short case with CUDA
+DeltaNet enabled. It matches a fresh uncached staged result exactly, executes
+648 recurrent steps and 648 device checkpoints across the 36 recurrent layers,
+and leaves no live transaction checkpoints. The recurrent executor tracks
+1,071,175,968 bytes including eight checkpoint slots per layer and releases all
+of it on sequence close. No recurrent state is downloaded. This case took about
+192 seconds on the RTX 5090. HC, PLE, QSA and MoE nonlinear operations remain
+on the host; broader qualification and full GPU serving are still pending.
+`full-gpu-recurrence-rollback-conformance.json` checks that same prompt after
+injecting an error after layer 20 of its first token. All 36 device recurrent
+states restore, the sequence returns to position zero, transaction checkpoints
+are released, and retry still matches the uncached reference exactly. This is a
+failure/retry check for the same short case, not broader text qualification.
+
 
 ## Build and reproduce checks
 
@@ -128,12 +155,15 @@ python3 -m unittest discover -s scripts/flash-next -p 'test_*.py' -v
 
 The checkpoint fixture suite compiles only the storage-reader Java subset and
 requires a JDK, with no checkpoint, Python packages, TornadoVM or GPU needed.
-The recorded upstream suite ran 796 tests with zero failures/errors and three
+The current upstream suite runs 799 tests with zero failures/errors and three
 skipped; the original launcher suite ran 112 tests. The 14 portable checkpoint
 fixture tests are included in this fork. `regression-tests.json` preserves the
 original commands and counts as historical evidence. The JITLLM test command
 selects 256-bit CPU vectors because the upstream Q4_1 dot-product implementation
 rejects this host's default 512-bit vector species.
+`recurrent-regression-tests.json` records the current suites and GPU recurrence
+checks. Recurrent memory estimates now count the actual float backing storage of
+convolution and PLE state rather than their BF16-rounded values' two-byte format.
 
 If an SDK is not installed, this optional helper invokes JITLLM's upstream SDK
 builder at the pinned revision. It caches or downloads a JDK 21 JVMCI image
@@ -170,6 +200,7 @@ python scripts/flash-next/verify_jitllm_gpu.py MODEL_DIR --device 1
 python scripts/flash-next/verify_jitllm_metadata.py MODEL_DIR
 python scripts/flash-next/verify_jitllm_layers.py MODEL_DIR
 python scripts/flash-next/verify_jitllm_deltanet.py MODEL_DIR
+python scripts/flash-next/verify_jitllm_deltanet.py MODEL_DIR --gpu-recurrence --gpu-projections --device 1
 python scripts/flash-next/verify_jitllm_qsa.py MODEL_DIR --fp8-kv --fused-precision --fresh-prefill
 python scripts/flash-next/verify_jitllm_activation.py MODEL_DIR
 python scripts/flash-next/verify_jitllm_moe.py MODEL_DIR
@@ -189,7 +220,10 @@ After building, the wrapper exposes these diagnostic paths:
 python3 scripts/flash-next/jitllm_runtime.py api-probe MODEL_DIR
 python3 scripts/flash-next/jitllm_runtime.py model-probe MODEL_DIR REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py cache-probe MODEL_DIR CACHE_REQUEST.json --device 1
+python3 scripts/flash-next/jitllm_runtime.py recurrent-probe MODEL_DIR RECURRENT_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml.json
+python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-recurrence.json
+python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-rollback.json
 ```
 
 The included example reproduces the 16-token prompt and requests three greedy
@@ -202,7 +236,10 @@ A raw generation request can contain `input_tokens`, `max_tokens`, and
 `trace_layers`. Setting `gpu_projections: true`, `device: 1`, and
 `gpu_cache_bytes: 17179869184` selects the GPU projection cache. Attention,
 recurrent updates, PLE gating, routing and other nonlinear operations still run
-on the host. This is an experimental diagnostic path, not the full GPU model
+on the host unless `gpu_recurrence: true` selects CUDA DeltaNet. Its
+`checkpoint_capacity` defaults to eight per layer/sequence, and `gpu_state_bytes`
+defaults to 4 GiB across all live recurrent sessions and checkpoint banks.
+HC, PLE, QSA and MoE nonlinear work still runs on the host. This is an experimental diagnostic path, not the full GPU model
 provider. `cache-probe` takes a `matrices` list of checkpoint projection prefixes
 and an optional `cache_bytes` budget.
 
@@ -212,7 +249,7 @@ and an optional `cache_bytes` budget.
    the strict MoE numeric differences, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Long prefill also
    needs the staged HC projection precision policy.
-2. Implement full GPU hyper-connection, PLE, DeltaNet, QSA and MoE execution,
+2. Implement full GPU hyper-connection, PLE, QSA and MoE execution,
    including efficient packed NVFP4 tensor-core projections. Connect that plan
    to the normal model provider; it currently refuses full GPU loads explicitly.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index

@@ -1,0 +1,43 @@
+{
+  "jitllm": {
+    "tests_run": 799,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "launcher": {
+    "tests_run": 112,
+    "passed": true
+  },
+  "gpu_deltanet": {
+    "steps": 12,
+    "rtol": 0.008,
+    "atol": 0.001,
+    "passed": true,
+    "nested_rollback_exact": true,
+    "reset_exact": true,
+    "state_host_download_bytes": 0,
+    "tracked_bytes_after_close": 0
+  },
+  "full_model": {
+    "scope": "One short ChatML case; GPU projections and DeltaNet",
+    "prompt_tokens": 16,
+    "generated_tokens": [
+      17,
+      478,
+      220
+    ],
+    "reference_cached_tokens": 0,
+    "passed": true
+  },
+  "remaining": "Full GPU HC/PLE/QSA/MoE, efficient tensor-core projections, MTP/NextN, full-context/concurrency qualification, vision and exact chat replay. Strict MoE numeric gate still fails.",
+  "engine_failure_rollback": {
+    "injected_layer": 20,
+    "recurrent_states_restored": 36,
+    "live_checkpoints_after_token": 0,
+    "reference_tokens_exact": true,
+    "tracked_bytes_after_sequence_close": 0,
+    "passed": true
+  }
+}

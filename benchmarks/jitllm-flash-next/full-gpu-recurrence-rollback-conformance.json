@@ -1,0 +1,65 @@
+{
+  "input_tokens": [
+    248045,
+    846,
+    198,
+    17,
+    10,
+    17,
+    19279,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "generated_tokens": [
+    17,
+    478,
+    220
+  ],
+  "text": "2 + ",
+  "elapsed_seconds": 193.22908731,
+  "cache_resident_bytes": 1048576,
+  "trace": [],
+  "rollback_probe": {
+    "transaction_checkpoints_released": true,
+    "position_restored": true,
+    "injected_layer": 20
+  },
+  "execution": "GPU weight projections and DeltaNet with host HC/PLE/QSA/MoE",
+  "device": "NVIDIA GeForce RTX 5090",
+  "gpu_cache_bytes": 17179387356,
+  "gpu_uploads": 10256,
+  "gpu_evictions": 370,
+  "gpu_executions": 40787,
+  "gpu_kernel_ns": 26279235421,
+  "gpu_recurrence": {
+    "kernel_ns": 172318362,
+    "restores": 36,
+    "state_host_download_bytes": 0,
+    "forwards": 664,
+    "live_snapshots": 0,
+    "sessions": 36,
+    "resident_bytes": 1071175968,
+    "checkpoints": 684
+  },
+  "gpu_recurrence_after_sequence_close_bytes": 0,
+  "passed": true,
+  "scope": "The same 16-token ChatML prompt and three greedy output tokens, after an injected layer-20 failure and rollback of the first token. GPU weight projections and DeltaNet; host HC/PLE/QSA/MoE.",
+  "reference_tokens": [
+    17,
+    478,
+    220
+  ],
+  "reference_text": "2 + ",
+  "reference_cached_tokens": 0,
+  "reference_prompt_tokens": 16,
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "checkpoint_capacity": 8,
+  "gpu_state_budget_bytes": 4294967296
+}

@@ -4,33 +4,62 @@ import java.io.IOException;
 import java.util.Arrays;
 import org.beehive.jitllm.format.safetensors.*;
 import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
+import org.beehive.jitllm.inference.op.DeltaNetExecutor;
 
 /** Qwen4 Gated DeltaNet: BF16 projections/convolution and FP32 recurrent state. */
 public final class Qwen4DeltaNet {
     private final Qwen4Configuration config;
     private final ModelOptMatrix qkv,z,a,b,out;
     private final float[] conv,norm,aLog,dtBias;
+    private final DeltaNetExecutor recurrentExecutor;
 
-    public final class State {
+    public final class State implements AutoCloseable {
         private final Qwen4DeltaNet owner=Qwen4DeltaNet.this;
-        private final float[] convolution=new float[config.linearQkvDim()*(config.linearConvKernel()-1)];
-        private final float[] temporal=new float[config.linearValueHeads()*config.linearKeyDim()*config.linearValueDim()];
-        public record Snapshot(float[] convolution,float[] temporal) {}
-        public Snapshot snapshot() { return new Snapshot(convolution.clone(),temporal.clone()); }
-        public void restore(Snapshot snapshot) {
-            if(snapshot.convolution().length!=convolution.length || snapshot.temporal().length!=temporal.length)
-                throw new IllegalArgumentException("Wrong DeltaNet state shape");
-            System.arraycopy(snapshot.convolution(),0,convolution,0,convolution.length);
-            System.arraycopy(snapshot.temporal(),0,temporal,0,temporal.length);
+        private final float[] convolution,temporal;
+        private final DeltaNetExecutor.Session device;
+        private boolean closed;
+        private State() {
+            var shape=new DeltaNetExecutor.Shape(config.linearKeyHeads(),config.linearValueHeads(),config.linearKeyDim(),
+                    config.linearValueDim(),config.linearConvKernel(),config.rmsNormEps());
+            device=recurrentExecutor==null ? null : recurrentExecutor.newSession(shape,conv,norm,aLog,dtBias);
+            convolution=new float[device==null ? shape.convolutionSize() : 0];
+            temporal=new float[device==null ? shape.temporalSize() : 0];
         }
-        public void reset() { Arrays.fill(convolution,0); Arrays.fill(temporal,0); }
+        public record Snapshot(State owner,float[] convolution,float[] temporal,DeltaNetExecutor.Snapshot device) implements AutoCloseable {
+            @Override public void close() {if(device!=null) device.close();}
+        }
+        private void requireOpen() {if(closed) throw new IllegalStateException("DeltaNet state is closed");}
+        public Snapshot snapshot() throws IOException {
+            requireOpen();
+            return new Snapshot(this,convolution.clone(),temporal.clone(),device==null ? null : device.snapshot());
+        }
+        public void restore(Snapshot snapshot) throws IOException {
+            requireOpen();
+            if(snapshot.owner()!=this || snapshot.convolution().length!=convolution.length || snapshot.temporal().length!=temporal.length)
+                throw new IllegalArgumentException("Wrong DeltaNet state shape");
+            if(device!=null) device.restore(snapshot.device());
+            else {
+                System.arraycopy(snapshot.convolution(),0,convolution,0,convolution.length);
+                System.arraycopy(snapshot.temporal(),0,temporal,0,temporal.length);
+            }
+        }
+        public void reset() {
+            requireOpen();
+            if(device!=null) try {device.reset();} catch(IOException failure) {throw new java.io.UncheckedIOException(failure);}
+            else {Arrays.fill(convolution,0);Arrays.fill(temporal,0);}
+        }
+        @Override public void close() throws IOException {if(!closed) {closed=true;if(device!=null) device.close();}}
     }
 
     public Qwen4DeltaNet(Qwen4Configuration config,SafeTensorIndex index,PagedTensorReader reader,String prefix) throws IOException {
         this(config,index,reader,prefix,null);
     }
     public Qwen4DeltaNet(Qwen4Configuration config,SafeTensorIndex index,PagedTensorReader reader,String prefix,MatrixExecutor executor) throws IOException {
+        this(config,index,reader,prefix,executor,null);
+    }
+    public Qwen4DeltaNet(Qwen4Configuration config,SafeTensorIndex index,PagedTensorReader reader,String prefix,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor) throws IOException {
         this.config=config;
+        this.recurrentExecutor=recurrentExecutor;
         int valueDim=config.linearValueHeads()*config.linearValueDim();
         qkv=Qwen4CpuLayers.matrix(index,reader,prefix+".in_proj_qkv",config.linearQkvDim(),config.dim(),executor);
         z=Qwen4CpuLayers.matrix(index,reader,prefix+".in_proj_z",valueDim,config.dim(),executor);
@@ -47,8 +76,10 @@ public final class Qwen4DeltaNet {
 
     public float[] forward(float[] input,State state) throws IOException {
         if(input.length!=config.dim() || state.owner!=this) throw new IllegalArgumentException("Invalid DeltaNet input/state");
+        state.requireOpen();
         float[] projected=Qwen4CpuLayers.project(qkv,input),gates=Qwen4CpuLayers.project(z,input);
         float[] alpha=Qwen4CpuLayers.project(a,input),beta=Qwen4CpuLayers.project(b,input);
+        if(state.device!=null) return Qwen4CpuLayers.project(out,state.device.forward(projected,gates,alpha,beta));
         int kernel=config.linearConvKernel(),history=kernel-1;
         float[] convolved=new float[projected.length];
         for(int channel=0; channel<projected.length; channel++) {

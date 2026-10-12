@@ -1,0 +1,105 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "steps": 12,
+  "key_heads": 16,
+  "value_heads": 48,
+  "head_mapping": "repeat_interleave",
+  "temporal_dtype": "F32",
+  "activation_dtype": "BF16",
+  "output_gate": "sigmoid",
+  "rtol": 0.008,
+  "atol": 0.001,
+  "rollback_exact": true,
+  "reset_exact": true,
+  "cache_resident_bytes": 1048576,
+  "comparisons": [
+    {
+      "step": 0,
+      "max_absolute_error": 0.0001220703125,
+      "rmse": 3.9339092836598866e-06,
+      "exact_fraction": 0.9937499761581421
+    },
+    {
+      "step": 1,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 1.690414865151979e-05,
+      "exact_fraction": 0.9632812738418579
+    },
+    {
+      "step": 2,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 1.9959381461376324e-05,
+      "exact_fraction": 0.953906238079071
+    },
+    {
+      "step": 3,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 2.816963205987122e-05,
+      "exact_fraction": 0.952343761920929
+    },
+    {
+      "step": 4,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 2.6012343369075097e-05,
+      "exact_fraction": 0.9449218511581421
+    },
+    {
+      "step": 5,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 4.4812230044044554e-05,
+      "exact_fraction": 0.916015625
+    },
+    {
+      "step": 6,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 1.3129646504239645e-05,
+      "exact_fraction": 0.984375
+    },
+    {
+      "step": 7,
+      "max_absolute_error": 0.000244140625,
+      "rmse": 1.1079028809035663e-05,
+      "exact_fraction": 0.985156238079071
+    },
+    {
+      "step": 8,
+      "max_absolute_error": 0.0009765625,
+      "rmse": 4.1435698221903294e-05,
+      "exact_fraction": 0.930468738079071
+    },
+    {
+      "step": 9,
+      "max_absolute_error": 0.0001220703125,
+      "rmse": 2.9750788144156104e-06,
+      "exact_fraction": 0.9957031011581421
+    },
+    {
+      "step": 10,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 1.3235635378805455e-05,
+      "exact_fraction": 0.987109363079071
+    },
+    {
+      "step": 11,
+      "max_absolute_error": 0.00048828125,
+      "rmse": 1.5664085367461666e-05,
+      "exact_fraction": 0.9867187738418579
+    }
+  ],
+  "gpu_recurrence": {
+    "rollback_exact": true,
+    "reset_exact": true,
+    "checkpoint_pool_bounded": true,
+    "foreign_checkpoint_refused": true,
+    "released_checkpoint_refused": true,
+    "independent_sequences": true,
+    "resident_bytes_after_close": 0,
+    "state_host_download_bytes": 0,
+    "gpu_forwards": 26,
+    "gpu_checkpoints": 31,
+    "gpu_restores": 25,
+    "gpu_resets": 1,
+    "gpu_kernel_ns": 12892055,
+    "gpu_projections": false
+  }
+}
