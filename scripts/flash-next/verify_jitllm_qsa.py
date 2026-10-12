@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -13,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[2]
 PREFIX="model.language_model.layers.3.self_attn."
 
 
-def verify(model,fp8=False,fused=False,fresh=False):
+def verify(model,fp8=False,fused=False,fresh=False,gpu=False,projected=False,device=1):
     torch.set_num_threads(4)
     if fused:
         from sglang.kernels.ops.elementwise.elementwise import fused_sigmoid_mul
@@ -53,9 +54,9 @@ def verify(model,fp8=False,fused=False,fresh=False):
     fresh_keys,fresh_values,queries=[],[],[]
     expected,selections=[],[]
     for step,(x,coordinates) in enumerate(zip(inputs,positions,strict=True)):
-        projected=F.linear(x,q_weight).reshape(heads,2*dim)
-        q=rope(norm(projected[:,:dim],q_norm),coordinates)
-        gate=projected[:,dim:]
+        q_gate=F.linear(x,q_weight).reshape(heads,2*dim)
+        q=rope(norm(q_gate[:,:dim],q_norm),coordinates)
+        gate=q_gate[:,dim:]
         k=rope(norm(F.linear(x,k_weight).reshape(kv_heads,dim),k_norm),coordinates)
         v=F.linear(x,v_weight).reshape(kv_heads,dim)
         fresh_keys.append(k);fresh_values.append(v);queries.append(q)
@@ -92,22 +93,31 @@ def verify(model,fp8=False,fused=False,fresh=False):
         expected.append(F.linear(gated.flatten(),o_weight).float())
     with tempfile.TemporaryDirectory(prefix="jitllm-qsa-") as temp:
         request=Path(temp)/"request.json"
-        request.write_text(json.dumps({"mode":"qsa","inputs":[x.float().tolist() for x in inputs],"positions":positions,"kv_dtype":"fp8_e4m3" if fp8 else "bf16","fused_precision":fused,"fresh_prefill":fresh}))
-        result=subprocess.run(["java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)],capture_output=True,text=True)
+        request.write_text(json.dumps({"mode":"qsa","inputs":[x.float().tolist() for x in inputs],"positions":positions,"kv_dtype":"fp8_e4m3" if fp8 else "bf16","fused_precision":fused,"fresh_prefill":fresh,"gpu_projections":projected,"device":device}))
+        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"qsa-probe",str(model),str(request)] if gpu else [
+                "java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        result=subprocess.run(command,capture_output=True,text=True)
         if result.returncode:raise RuntimeError(result.stderr)
-        actual=json.loads(result.stdout)
+        lines=[line for line in result.stdout.splitlines() if line.startswith('{"')]
+        if len(lines)!=1:raise RuntimeError("Expected one QSA report: "+result.stdout)
+        actual=json.loads(lines[0])
     comparisons=[]
     for step,(reference,values,selection) in enumerate(zip(expected,actual["outputs"],actual["selections"],strict=True)):
         assert sorted(selection)==sorted(selections[step]),(step,selection,selections[step])
         observed=torch.tensor(values);differences=observed-reference
         torch.testing.assert_close(observed,reference,rtol=.016,atol=.004,msg=f"QSA step {step}")
         comparisons.append({"step":step,"max_absolute_error":differences.abs().max().item(),"rmse":differences.square().mean().sqrt().item(),"exact_fraction":(differences==0).float().mean().item(),"selected_tokens":len(selection)})
-    return {"checkpoint":str(model.resolve()),"fused_precision":fused,"fresh_prefill":fresh,"attention_reference":"SGLang CUDA sparse GQA prefill" if fresh else "PyTorch FP32 attention", "gate_reference":"SGLang CUDA fused_sigmoid_mul" if fused else "PyTorch eager BF16 sigmoid/mul", "kv_dtype":"fp8_e4m3" if fp8 else "bf16","steps":len(inputs),"positions":positions,"compression_ratio":ratio,"token_budget":config["indexer_budget"],
+    report={"checkpoint":str(model.resolve()),"fused_precision":fused,"fresh_prefill":fresh,"attention_reference":"SGLang CUDA sparse GQA prefill" if fresh else "PyTorch FP32 attention", "gate_reference":"SGLang CUDA fused_sigmoid_mul" if fused else "PyTorch eager BF16 sigmoid/mul", "kv_dtype":"fp8_e4m3" if fp8 else "bf16","steps":len(inputs),"positions":positions,"compression_ratio":ratio,"token_budget":config["indexer_budget"],
             "rollback_exact":actual["rollback_exact"],"reset_exact":actual["reset_exact"],"cache_resident_bytes":actual["cache_resident_bytes"],"rtol":.016,"atol":.004,"comparisons":comparisons}
+    if gpu:
+        assert actual["gpu_qsa"]["kernel_ns"]>0 and actual["gpu_qsa"]["kv_host_download_bytes"]==0 and actual["gpu_qsa"]["reserved_bytes_after_close"]==0
+        report["gpu_qsa"]=actual["gpu_qsa"];report["gpu_projections"]=projected
+    return report
 
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument("model",type=Path);parser.add_argument("--output",type=Path);parser.add_argument("--fp8-kv",action="store_true");parser.add_argument("--fused-precision",action="store_true");parser.add_argument("--fresh-prefill",action="store_true")
-    args=parser.parse_args();report=json.dumps(verify(args.model,args.fp8_kv,args.fused_precision,args.fresh_prefill),indent=2)
+    parser.add_argument("--gpu-qsa",action="store_true");parser.add_argument("--gpu-projections",action="store_true");parser.add_argument("--device",type=int,default=1)
+    args=parser.parse_args();report=json.dumps(verify(args.model,args.fp8_kv,args.fused_precision,args.fresh_prefill,args.gpu_qsa,args.gpu_projections,args.device),indent=2)
     if args.output:args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(report+"\n")
     print(report)

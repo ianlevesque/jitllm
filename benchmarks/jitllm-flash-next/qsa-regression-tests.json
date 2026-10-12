@@ -1,0 +1,39 @@
+{
+  "jitllm": {
+    "tests_run": 803,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "portable_checkpoint_fixtures": {
+    "tests_run": 14,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 62,
+    "exact_match": true
+  },
+  "gpu_qsa": {
+    "steps_per_case": 12,
+    "cases": [
+      "FP8 decode with PyTorch FP32 attention",
+      "fresh BF16 prefill with SGLang CUDA sparse GQA"
+    ],
+    "gpu_projections": true,
+    "rtol": 0.016,
+    "atol": 0.004,
+    "rollback_exact": true,
+    "reset_exact": true,
+    "no_kv_downloads": true,
+    "reserved_bytes_after_close": 0,
+    "standalone_fork_wrapper_verified": true,
+    "passed": true
+  },
+  "scope": "Single-layer, single-page subsystem qualification. Page transitions, long context, full-model GPU QSA and serving remain unqualified. Historical MoE numeric failure remains unresolved.",
+  "launcher": {
+    "command": ".venv/bin/python -m unittest discover -s tests -v",
+    "tests_run": 112,
+    "passed": true
+  }
+}

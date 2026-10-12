@@ -82,4 +82,12 @@ public class Qwen4PrefillPrecisionTest {
             assertThrows(IllegalStateException.class,first::snapshot);
         }
     }
+    @Test public void attentionCheckpointIsOwnedByOneSequenceAndCloseRejectsForward() throws Exception {
+        try(var fixture=new Fixture();var first=fixture.layer.newState();var second=fixture.layer.newState();var saved=first.snapshot()) {
+            assertThrows(IllegalArgumentException.class,()->second.restore(saved));
+            first.close();assertThrows(IllegalStateException.class,()->fixture.layer.forward(input(),first));
+            assertThrows(IllegalStateException.class,first::snapshot);
+            assertThrows(IllegalStateException.class,first::selectedTokens);
+        }
+    }
 }

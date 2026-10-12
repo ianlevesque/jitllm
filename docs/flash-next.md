@@ -190,6 +190,26 @@ tracked HC/PLE buffers at engine close. These two short cases do not establish
 full GPU serving, broad text accuracy or full-context/concurrent inference.
 The sequential runs took about 213 and 259 seconds on the RTX 5090.
 
+Optional CUDA QSA now stores persistent K/V in physical FP8 bytes (or BF16
+bytes), with BF16 compressed keys, GPU block scoring/top-k selection and
+sparse GQA. The executor reserves a bounded full-context address space and
+materializes 2,048-token device pages when reached. Snapshot metadata keeps a
+prefix length and the small unfinished compression input on the host; KV is
+append-only and never downloaded. Diagnostic selections are downloaded. The
+first 4,096-token BF16 shadow is logically released after fresh prefill and
+physically retained until session close so rollback can recover it.
+
+`gpu-qsa-fp8-parity.json` and `gpu-qsa-fresh-prefill-parity.json` check 12 steps
+using real layer-3 weights, mixed MRoPE coordinates and GPU projections.
+Both pass the existing rtol 0.016 / atol 0.004, with a maximum observed
+absolute difference of 0.0078125, matching sparse selection sets, exact
+rollback/reset, positive CUDA kernel timings and zero tracked reservation
+after close. The fresh reference uses SGLang's CUDA sparse GQA kernel.
+These checks cover a single page; page transitions, long-context selection,
+full-model GPU QSA, concurrent inference and serving remain unqualified.
+The engine accepts an optional `QsaExecutor`; the generation CLI and normal
+GPU model provider still require integration.
+
 ## Build and reproduce checks
 
 Run commands from the root of this JITLLM checkout. Use JDK 25 and the pinned CUDA
@@ -204,7 +224,7 @@ python3 -m unittest discover -s scripts/flash-next -p 'test_*.py' -v
 
 The checkpoint fixture suite compiles only the storage-reader Java subset and
 requires a JDK, with no checkpoint, Python packages, TornadoVM or GPU needed.
-The current upstream suite runs 802 tests with zero failures/errors and three
+The current upstream suite runs 803 tests with zero failures/errors and three
 skipped; the original launcher suite ran 112 tests. The 14 portable checkpoint
 fixture tests are included in this fork. `regression-tests.json` preserves the
 original commands and counts as historical evidence. The JITLLM test command
@@ -276,6 +296,7 @@ python3 scripts/flash-next/jitllm_runtime.py cache-probe MODEL_DIR CACHE_REQUEST
 python3 scripts/flash-next/jitllm_runtime.py recurrent-probe MODEL_DIR RECURRENT_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py hc-ple-probe MODEL_DIR HC_PLE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py bf16-batch-probe MODEL_DIR BF16_BATCH_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py qsa-probe MODEL_DIR QSA_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-recurrence.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-rollback.json
@@ -308,12 +329,12 @@ and an optional `cache_bytes` budget.
 1. Broaden text conformance beyond the successful short ChatML case. Resolve
    the strict MoE numeric differences, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
-2. Implement full GPU QSA and MoE execution and fuse the native layer plans,
+2. Integrate and qualify GPU QSA, implement GPU MoE, and fuse the native layer plans,
    including efficient packed NVFP4 tensor-core projections. Connect that plan
    to the normal model provider; it currently refuses full GPU loads explicitly.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index
    reuse, and rejection/accepted-prefix rollback for every request state.
-4. Implement physical FP8 KV storage, efficient 262,144-token sparse indexing,
+4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
    prefill/chunking, memory planning and three-request scheduling. Configuration
    and admission checks do not prove full-context/concurrent inference.
 5. Implement native vision/image processing and exact checkpoint chat-template

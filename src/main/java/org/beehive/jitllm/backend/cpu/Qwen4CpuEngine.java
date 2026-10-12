@@ -9,6 +9,7 @@ import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
 import org.beehive.jitllm.tokenizer.Qwen4Tokenizer;
 import org.beehive.jitllm.inference.op.DeltaNetExecutor;
 import org.beehive.jitllm.inference.op.FlashNextLayerExecutor;
+import org.beehive.jitllm.inference.op.QsaExecutor;
 
 /** Full Flash-Next host forward pass. Weight storage and PLE stay in the original checkpoint. */
 public final class Qwen4CpuEngine implements AutoCloseable {
@@ -68,6 +69,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
             @Override public void close() {
                 for(var snapshot:delta) if(snapshot!=null) snapshot.close();
                 for(var snapshot:ple) if(snapshot!=null) snapshot.close();
+                for(var snapshot:attention) if(snapshot!=null) snapshot.close();
             }
         }
         public Snapshot snapshot() throws IOException {
@@ -77,7 +79,8 @@ public final class Qwen4CpuEngine implements AutoCloseable {
                 for(int i=0;i<layers.length;i++) {if(delta[i]!=null) ds[i]=delta[i].snapshot();if(attention[i]!=null) as[i]=attention[i].snapshot();if(ple[i]!=null) ps[i]=ple[i].snapshot();}
             } catch(IOException|RuntimeException|Error failure) {
                 for(var snapshot:ds) if(snapshot!=null) snapshot.close();
-                for(var snapshot:ps) if(snapshot!=null) snapshot.close();throw failure;
+                for(var snapshot:ps) if(snapshot!=null) snapshot.close();
+                for(var snapshot:as) if(snapshot!=null) snapshot.close();throw failure;
             }
             return new Snapshot(this,position,freshPrefillEnd,prefillEnd,prefillStart,ds,as,ps);
         }
@@ -104,6 +107,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
             for(var state:ple) if(state!=null) try {state.close();} catch(IOException closing) {
                 if(failure==null) failure=closing;else failure.addSuppressed(closing);
             }
+            for(var state:attention) if(state!=null) try {state.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
             synchronized(Qwen4CpuEngine.this) {sequences.remove(this);}if(failure!=null) throw failure;
         }
     }
@@ -127,6 +131,9 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         this(directory,context,pageBudget,onLoaded,executor,recurrentExecutor,null);
     }
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor,FlashNextLayerExecutor layerExecutor) throws IOException {
+        this(directory,context,pageBudget,onLoaded,executor,recurrentExecutor,layerExecutor,null);
+    }
+    public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor,FlashNextLayerExecutor layerExecutor,QsaExecutor qsaExecutor) throws IOException {
         config=Qwen4Configuration.load(directory,context);
         tokenizer=Qwen4Tokenizer.load(directory);
         reader=new PagedTensorReader(pageBudget,4096);
@@ -142,7 +149,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
                 var attentionMix=own(new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".attn_hyper_connection",true,executor,layerExecutor));
                 var mlpMix=own(new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".mlp_hyper_connection",true,executor,layerExecutor));
                 var delta=config.isRecurrentLayer(i) ? new Qwen4DeltaNet(config,index,reader,prefix+".linear_attn",executor,recurrentExecutor) : null;
-                var attention=config.isRecurrentLayer(i) ? null : new Qwen4QsaAttention(config,index,reader,prefix+".self_attn",true,true,executor);
+                var attention=config.isRecurrentLayer(i) ? null : new Qwen4QsaAttention(config,index,reader,prefix+".self_attn",true,true,executor,qsaExecutor);
                 var moe=new Qwen4Moe(config,index,reader,prefix+".mlp",executor);
                 var ple=config.hasPle(i) ? new Qwen4CpuLayers.Ple(config,index,reader,prefix+".ple",executor,layerExecutor) : null;
                 layers[i]=new Layer(attentionMix,mlpMix,delta,attention,moe,ple);

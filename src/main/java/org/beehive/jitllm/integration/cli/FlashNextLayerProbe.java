@@ -10,6 +10,7 @@ import org.beehive.jitllm.format.safetensors.*;
 import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
 import org.beehive.jitllm.server.Json;
 import org.beehive.jitllm.inference.op.FlashNextLayerExecutor;
+import org.beehive.jitllm.inference.op.QsaExecutor;
 
 /** Real PLE/hyper-connection execution, including state rollback and sequence reset checks. */
 public final class FlashNextLayerProbe {
@@ -132,27 +133,33 @@ public final class FlashNextLayerProbe {
         }
     }
     private static void qsa(Path model,Qwen4Configuration config,Map<String,Object> request) throws Exception {
+        System.out.println(Json.write(qsaResult(model,config,request,null,null)));
+    }
+    public static Map<String,Object> qsaResult(Path model,Qwen4Configuration config,Map<String,Object> request,MatrixExecutor matrices,QsaExecutor executor) throws Exception {
         String prefix="model.language_model.layers.3.self_attn";
         SafeTensorIndex index=SafeTensorIndex.open(model,name->name.startsWith(prefix+"."));
         try(PagedTensorReader reader=new PagedTensorReader(1048576,4096)) {
-            var layer=new Qwen4QsaAttention(config,index,reader,prefix,"fp8_e4m3".equals(request.get("kv_dtype")),Boolean.TRUE.equals(request.get("fused_precision")));
-            var state=layer.newState();
+            var layer=new Qwen4QsaAttention(config,index,reader,prefix,"fp8_e4m3".equals(request.get("kv_dtype")),Boolean.TRUE.equals(request.get("fused_precision")),matrices,executor);
+            try(var state=layer.newState()) {
             List<Object> outputs=new ArrayList<>(),selections=new ArrayList<>();int step=0;
             boolean fresh=Boolean.TRUE.equals(request.get("fresh_prefill"));
             for(Object value:(List<?>)request.get("inputs")) {
                 float[] input=values((List<?>)value);
                 int[] positions=request.containsKey("positions") ? ((List<?>)((List<?>)request.get("positions")).get(step)).stream().mapToInt(p->((Number)p).intValue()).toArray()
                         : new int[]{step,step,step};
-                var before=state.snapshot();float[] output=layer.forward(input,positions,state,fresh);int[] selected=state.selectedTokens();
-                if(fresh) state.finishFreshPrefill();
-                state.restore(before);float[] replay=layer.forward(input,positions,state,fresh);
-                if(!Arrays.equals(output,replay) || !Arrays.equals(selected,state.selectedTokens())) throw new AssertionError("QSA rollback mismatch");
-                outputs.add(floats(output));selections.add(Arrays.stream(selected).boxed().toList());step++;
+                try(var before=state.snapshot()) {
+                    float[] output=layer.forward(input,positions,state,fresh);int[] selected=state.selectedTokens();
+                    if(fresh) state.finishFreshPrefill();
+                    state.restore(before);float[] replay=layer.forward(input,positions,state,fresh);
+                    if(!Arrays.equals(output,replay) || !Arrays.equals(selected,state.selectedTokens())) throw new AssertionError("QSA rollback mismatch");
+                    outputs.add(floats(output));selections.add(Arrays.stream(selected).boxed().toList());step++;
+                }
             }
             state.reset();float[] first=values((List<?>)((List<?>)request.get("inputs")).get(0));
             int[] positions=request.containsKey("positions") ? ((List<?>)((List<?>)request.get("positions")).get(0)).stream().mapToInt(p->((Number)p).intValue()).toArray() : new int[]{0,0,0};
             if(!floats(layer.forward(first,positions,state,fresh)).equals(outputs.get(0))) throw new AssertionError("QSA reset mismatch");
-            System.out.println(Json.write(Map.of("outputs",outputs,"selections",selections,"rollback_exact",true,"reset_exact",true,"cache_resident_bytes",reader.statistics().residentBytes())));
+            return new LinkedHashMap<>(Map.of("outputs",outputs,"selections",selections,"rollback_exact",true,"reset_exact",true,"cache_resident_bytes",reader.statistics().residentBytes()));
+            }
         }
     }
     private static void moe(Path model,Qwen4Configuration config,Map<String,Object> request) throws Exception {
