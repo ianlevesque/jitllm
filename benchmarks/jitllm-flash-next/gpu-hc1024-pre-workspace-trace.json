@@ -1,0 +1,469 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "tokens": [
+    248044,
+    9419,
+    1814,
+    0,
+    248044,
+    109266,
+    96748,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "dtype": "BF16",
+  "rtol": 0.008,
+  "atol": 0.0001,
+  "passed": false,
+  "hc_rows": 1024,
+  "hc_mix_precision": "BF16 projection boundaries",
+  "fused_ple_decode": true,
+  "rollback_exact": true,
+  "reset_exact": true,
+  "cache_resident_bytes": 999424,
+  "page_misses": 244,
+  "file_bytes_read": 999424,
+  "comparisons": [
+    {
+      "operation": "hyper_normalize",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "hyper_mix",
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.001088291173800826,
+      "exact_fraction": 0.500781238079071,
+      "passed": false,
+      "failed_values": 455,
+      "failures": [
+        {
+          "index": 1,
+          "actual": -0.01141357421875,
+          "reference": -0.01019287109375
+        },
+        {
+          "index": 11,
+          "actual": -0.123046875,
+          "reference": -0.12158203125
+        },
+        {
+          "index": 15,
+          "actual": 0.061767578125,
+          "reference": 0.060791015625
+        },
+        {
+          "index": 25,
+          "actual": 0.00970458984375,
+          "reference": 0.0087890625
+        },
+        {
+          "index": 39,
+          "actual": 0.06640625,
+          "reference": 0.0654296875
+        },
+        {
+          "index": 41,
+          "actual": -0.0228271484375,
+          "reference": -0.0245361328125
+        },
+        {
+          "index": 47,
+          "actual": -0.015380859375,
+          "reference": -0.01507568359375
+        },
+        {
+          "index": 56,
+          "actual": 0.0137939453125,
+          "reference": 0.01507568359375
+        },
+        {
+          "index": 59,
+          "actual": -0.0037994384765625,
+          "reference": -0.0035552978515625
+        },
+        {
+          "index": 65,
+          "actual": -0.392578125,
+          "reference": -0.396484375
+        }
+      ]
+    },
+    {
+      "operation": "hyper_combine",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_0",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_1",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_2",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_3",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_4",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_5",
+      "max_absolute_error": 1.52587890625e-05,
+      "rmse": 1.519626238177807e-07,
+      "exact_fraction": 0.999804675579071,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_6",
+      "max_absolute_error": 6.103515625e-05,
+      "rmse": 6.058197072889016e-07,
+      "exact_fraction": 0.999707043170929,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_7",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_8",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_9",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_10",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_11",
+      "max_absolute_error": 1.9073486328125e-06,
+      "rmse": 1.8848643534852272e-08,
+      "exact_fraction": 0.9999023675918579,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    }
+  ],
+  "gpu_hc_ple": {
+    "hyper_combines": 1,
+    "buffer_budget_refused": true,
+    "restores": 25,
+    "checkpoints": 34,
+    "hyper_mixes": 1,
+    "resident_bytes_after_close": 0,
+    "resets": 3,
+    "state_host_download_bytes": 0,
+    "ple_forwards": 27,
+    "kernel_ns": 33922143
+  },
+  "gpu_projections": true,
+  "bf16_gemm_executions": 2,
+  "bf16_gemm_cache_bytes": 56445600,
+  "projection_bytes_after_close": 0,
+  "foreign_checkpoint_refused": true,
+  "reset_checkpoint_refused": true,
+  "independent_sequences": true,
+  "checkpoint_pool_bounded": true,
+  "use_after_close_refused": true,
+  "residual_add_exact": true,
+  "hyper_trace_comparisons": [
+    {
+      "operation": "down_bf16",
+      "max_error": 0.25,
+      "different_values": 191,
+      "examples": [
+        {
+          "index": 0,
+          "actual": 6.34375,
+          "reference": 6.28125
+        },
+        {
+          "index": 1,
+          "actual": -0.341796875,
+          "reference": -0.32421875
+        },
+        {
+          "index": 2,
+          "actual": 2.78125,
+          "reference": 2.75
+        },
+        {
+          "index": 3,
+          "actual": -5.8125,
+          "reference": -5.75
+        },
+        {
+          "index": 4,
+          "actual": -8.625,
+          "reference": -8.6875
+        },
+        {
+          "index": 5,
+          "actual": -0.26953125,
+          "reference": -0.27734375
+        },
+        {
+          "index": 7,
+          "actual": -15.0,
+          "reference": -14.9375
+        },
+        {
+          "index": 8,
+          "actual": 5.46875,
+          "reference": 5.53125
+        },
+        {
+          "index": 9,
+          "actual": 3.703125,
+          "reference": 3.65625
+        },
+        {
+          "index": 11,
+          "actual": 19.25,
+          "reference": 19.125
+        }
+      ]
+    },
+    {
+      "operation": "low",
+      "max_error": 0.046875,
+      "different_values": 155,
+      "examples": [
+        {
+          "index": 0,
+          "actual": 1.3125,
+          "reference": 1.296875
+        },
+        {
+          "index": 1,
+          "actual": -0.041015625,
+          "reference": -0.038818359375
+        },
+        {
+          "index": 2,
+          "actual": 0.46484375,
+          "reference": 0.45703125
+        },
+        {
+          "index": 4,
+          "actual": -0.2236328125,
+          "reference": -0.22265625
+        },
+        {
+          "index": 5,
+          "actual": -0.032470703125,
+          "reference": -0.033447265625
+        },
+        {
+          "index": 7,
+          "actual": -0.0859375,
+          "reference": -0.0869140625
+        },
+        {
+          "index": 8,
+          "actual": 1.0859375,
+          "reference": 1.109375
+        },
+        {
+          "index": 9,
+          "actual": 0.6640625,
+          "reference": 0.65234375
+        },
+        {
+          "index": 11,
+          "actual": 4.78125,
+          "reference": 4.75
+        },
+        {
+          "index": 12,
+          "actual": -0.06494140625,
+          "reference": -0.0673828125
+        }
+      ]
+    },
+    {
+      "operation": "up_bf16",
+      "max_error": 0.09375,
+      "different_values": 5382,
+      "examples": [
+        {
+          "index": 1,
+          "actual": -1.8203125,
+          "reference": -1.828125
+        },
+        {
+          "index": 5,
+          "actual": 0.69921875,
+          "reference": 0.69140625
+        },
+        {
+          "index": 9,
+          "actual": -5.0,
+          "reference": -4.96875
+        },
+        {
+          "index": 15,
+          "actual": -0.37109375,
+          "reference": -0.380859375
+        },
+        {
+          "index": 16,
+          "actual": -3.921875,
+          "reference": -3.9375
+        },
+        {
+          "index": 17,
+          "actual": -0.09765625,
+          "reference": -0.10595703125
+        },
+        {
+          "index": 19,
+          "actual": -4.34375,
+          "reference": -4.3125
+        },
+        {
+          "index": 25,
+          "actual": -0.75390625,
+          "reference": -0.765625
+        },
+        {
+          "index": 26,
+          "actual": 1.2734375,
+          "reference": 1.2890625
+        },
+        {
+          "index": 32,
+          "actual": -2.640625,
+          "reference": -2.625
+        }
+      ]
+    },
+    {
+      "operation": "reconstructed_mix",
+      "max_error": 0.0078125,
+      "different_values": 1278,
+      "examples": [
+        {
+          "index": 1,
+          "actual": -0.01141357421875,
+          "reference": -0.01019287109375
+        },
+        {
+          "index": 5,
+          "actual": -0.130859375,
+          "reference": -0.1318359375
+        },
+        {
+          "index": 8,
+          "actual": -0.2021484375,
+          "reference": -0.201171875
+        },
+        {
+          "index": 11,
+          "actual": -0.123046875,
+          "reference": -0.12158203125
+        },
+        {
+          "index": 15,
+          "actual": 0.061767578125,
+          "reference": 0.060791015625
+        },
+        {
+          "index": 17,
+          "actual": -0.208984375,
+          "reference": -0.2080078125
+        },
+        {
+          "index": 19,
+          "actual": -0.06787109375,
+          "reference": -0.068359375
+        },
+        {
+          "index": 20,
+          "actual": -0.451171875,
+          "reference": -0.44921875
+        },
+        {
+          "index": 24,
+          "actual": 0.0859375,
+          "reference": 0.08642578125
+        },
+        {
+          "index": 25,
+          "actual": 0.00970458984375,
+          "reference": 0.0087890625
+        }
+      ]
+    }
+  ]
+}

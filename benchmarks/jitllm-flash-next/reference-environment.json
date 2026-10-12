@@ -13,5 +13,10 @@
   "tornadovm_ref": "a40ccf9a692fc06fe4c499f3700a3037e91dfebe",
   "jitllm_upstream_ref": "67a7b8b28e19f3212bfbfc251de7ff9bb35bd863",
   "checkpoint_repository": "nvidia/Qwen3.8-Flash-Next-NVFP4",
-  "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47"
+  "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "native_bf16_gemm": {
+    "workspace_bytes": 33554432,
+    "library": "CUDA 13 cuBLAS through private unversioned aliases",
+    "caller_thread_owned_plans": true
+  }
 }

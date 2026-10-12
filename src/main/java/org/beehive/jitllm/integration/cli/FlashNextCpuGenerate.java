@@ -6,6 +6,7 @@ import org.beehive.jitllm.backend.cpu.Qwen4CpuEngine;
 import org.beehive.jitllm.server.Json;
 import org.beehive.jitllm.backend.tornado.FlashNextMatrixExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextDeltaNetExecutor;
+import org.beehive.jitllm.backend.tornado.FlashNextLayerExecutor;
 
 /** Native full-model reference runner; this host path precedes the device serving integration. */
 public final class FlashNextCpuGenerate {
@@ -16,10 +17,13 @@ public final class FlashNextCpuGenerate {
         long start=System.nanoTime();
         boolean projected=Boolean.TRUE.equals(request.get("gpu_projections"));
         boolean recurrent=Boolean.TRUE.equals(request.get("gpu_recurrence"));
+        boolean layerOps=Boolean.TRUE.equals(request.get("gpu_hc_ple"));
         try(var executor=projected ? new FlashNextMatrixExecutor(((Number)request.getOrDefault("device",1)).intValue(),((Number)request.getOrDefault("gpu_cache_bytes",16L<<30)).longValue()) : null;
             var recurrence=recurrent ? new FlashNextDeltaNetExecutor(((Number)request.getOrDefault("device",1)).intValue(),
                     ((Number)request.getOrDefault("checkpoint_capacity",8)).intValue(),((Number)request.getOrDefault("gpu_state_bytes",4L<<30)).longValue()) : null;
-            var engine=new Qwen4CpuEngine(Path.of(args[0]),-1,1048576,(loaded,total)->System.err.println("Loaded layer "+loaded+"/"+total),executor,recurrence)) {
+            var layers=layerOps ? new FlashNextLayerExecutor(((Number)request.getOrDefault("device",1)).intValue(),
+                    ((Number)request.getOrDefault("checkpoint_capacity",8)).intValue(),((Number)request.getOrDefault("gpu_layer_bytes",64L<<20)).longValue()) : null;
+            var engine=new Qwen4CpuEngine(Path.of(args[0]),-1,1048576,(loaded,total)->System.err.println("Loaded layer "+loaded+"/"+total),executor,recurrence,layers)) {
             List<Integer> tokens;
             if(request.containsKey("input_tokens")) tokens=((List<?>)request.get("input_tokens")).stream().map(v->((Number)v).intValue()).toList();
             else tokens=engine.tokenizer().encode((String)request.get("prompt"),engine.tokenizer().getSpecialTokens().keySet());
@@ -35,7 +39,7 @@ public final class FlashNextCpuGenerate {
                     engine.forward(tokens.getFirst(),sequence,false,(layer,values)-> {if(layer==failureLayer) throw injected;});
                     throw new AssertionError("Rollback probe failed to inject its layer error");
                 } catch(IllegalStateException failure) {if(failure!=injected || failure.getSuppressed().length!=0) throw failure;}
-                if(sequence.position()!=0 || (recurrence!=null && recurrence.statistics().liveSnapshots()!=0))
+                if(sequence.position()!=0 || (recurrence!=null && recurrence.statistics().liveSnapshots()!=0) || (layers!=null && layers.statistics().liveSnapshots()!=0))
                     throw new AssertionError("Failed token retained position/checkpoints");
             }
             List<Object> trace=new ArrayList<>();
@@ -55,19 +59,34 @@ public final class FlashNextCpuGenerate {
             var report=new LinkedHashMap<String,Object>();
             report.put("input_tokens",tokens);report.put("generated_tokens",generated);report.put("text",engine.tokenizer().decode(generated));
             report.put("elapsed_seconds",(System.nanoTime()-start)/1e9);report.put("cache_resident_bytes",engine.statistics().residentBytes());report.put("trace",trace);
+            var paging=engine.statistics();
+            report.put("paged_reader",Map.of("hits",paging.hits(),"misses",paging.misses(),"file_bytes_read",paging.bytesRead(),"resident_bytes",paging.residentBytes(),"budget_bytes",paging.budgetBytes()));
             if(rollbackProbe) report.put("rollback_probe",Map.of("injected_layer",((Number)request.getOrDefault("rollback_layer",20)).intValue(),"position_restored",true,"transaction_checkpoints_released",true));
             if(executor!=null) {
                 var stats=executor.statistics();
-                report.put("execution",recurrent ? "GPU weight projections and DeltaNet with host HC/PLE/QSA/MoE" : "GPU weight projections with host nonlinear/recurrent/attention execution");
+                report.put("execution","GPU weight projections"+(recurrent ? " and DeltaNet" : "")+(layerOps ? " and HC/PLE" : "")+"; QSA and MoE nonlinear work remains on the host");
                 report.put("device",executor.deviceName());report.put("gpu_cache_bytes",stats.residentBytes());
                 report.put("gpu_uploads",stats.uploads());report.put("gpu_evictions",stats.evictions());report.put("gpu_executions",stats.executions());report.put("gpu_kernel_ns",stats.kernelNanos());
+                report.put("bf16_gemm_cache_bytes",stats.bf16ResidentBytes());report.put("bf16_gemm_executions",stats.bf16Executions());
             }
             if(recurrence!=null) {
                 var stats=recurrence.statistics();
                 report.put("gpu_recurrence",Map.of("resident_bytes",stats.residentBytes(),"sessions",stats.sessions(),"live_snapshots",stats.liveSnapshots(),
                         "forwards",stats.forwards(),"checkpoints",stats.checkpoints(),"restores",stats.restores(),"kernel_ns",stats.kernelNanos(),"state_host_download_bytes",stats.stateHostDownloadBytes()));
-                sequence.close();
-                report.put("gpu_recurrence_after_sequence_close_bytes",recurrence.statistics().residentBytes());
+            }
+            if(layers!=null) {
+                var stats=layers.statistics();
+                var operations=new LinkedHashMap<String,Object>();
+                operations.put("resident_bytes",stats.residentBytes());operations.put("hyper_connections",stats.hyperConnections());operations.put("ple_sessions",stats.pleSessions());
+                operations.put("live_snapshots",stats.liveSnapshots());operations.put("hyper_mixes",stats.hyperMixes());operations.put("hyper_combines",stats.hyperCombines());
+                operations.put("ple_forwards",stats.pleForwards());operations.put("checkpoints",stats.checkpoints());operations.put("restores",stats.restores());
+                operations.put("kernel_ns",stats.kernelNanos());operations.put("state_host_download_bytes",stats.stateHostDownloadBytes());report.put("gpu_hc_ple",operations);
+            }
+            sequence.close();
+            if(recurrence!=null) report.put("gpu_recurrence_after_sequence_close_bytes",recurrence.statistics().residentBytes());
+            if(layers!=null) {
+                report.put("gpu_ple_sessions_after_sequence_close",layers.statistics().pleSessions());
+                engine.close();report.put("gpu_layer_bytes_after_engine_close",layers.statistics().residentBytes());
             }
             System.out.println(Json.write(report));
         }

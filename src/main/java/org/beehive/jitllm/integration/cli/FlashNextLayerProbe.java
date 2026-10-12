@@ -9,6 +9,7 @@ import org.beehive.jitllm.backend.cpu.Qwen4Moe;
 import org.beehive.jitllm.format.safetensors.*;
 import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
 import org.beehive.jitllm.server.Json;
+import org.beehive.jitllm.inference.op.FlashNextLayerExecutor;
 
 /** Real PLE/hyper-connection execution, including state rollback and sequence reset checks. */
 public final class FlashNextLayerProbe {
@@ -21,33 +22,88 @@ public final class FlashNextLayerProbe {
         if("qsa".equals(request.get("mode"))) { qsa(model,config,request); return; }
         if("moe".equals(request.get("mode"))) { moe(model,config,request); return; }
         if("hybrid0".equals(request.get("mode"))) { hybrid0(model,config,request); return; }
+        System.out.println(Json.write(hyperPle(model,config,request,null,null)));
+    }
+    public static Map<String,Object> hyperPle(Path model,Qwen4Configuration config,Map<String,Object> request,MatrixExecutor matrices,FlashNextLayerExecutor executor) throws Exception {
         String prefix="model.language_model.layers.1";
         SafeTensorIndex index=SafeTensorIndex.open(model,name -> name.startsWith(prefix+".ple.") || name.startsWith(prefix+".attn_hyper_connection."));
         try(PagedTensorReader reader=new PagedTensorReader(1048576,4096)) {
-            var ple=new Qwen4CpuLayers.Ple(config,index,reader,prefix+".ple");
-            var hyper=new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".attn_hyper_connection",true);
-            var state=ple.newState();
+            var ple=new Qwen4CpuLayers.Ple(config,index,reader,prefix+".ple",matrices,executor);
+            try(var hyper=new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".attn_hyper_connection",true,matrices,executor);
+                var state=ple.newState()) {
             List<Object> results=new ArrayList<>();
             float[] hidden=values((List<?>)request.get("hidden"));
             float[] block=values((List<?>)request.get("block"));
-            Qwen4CpuLayers.HyperConnection.Mixed mixed=hyper.mix(hidden);
+            int rows=((Number)request.getOrDefault("hc_rows",1)).intValue();
+            boolean fused=Boolean.TRUE.equals(request.get("fused_ple_decode"));
+            var hyperTrace=new LinkedHashMap<String,Object>();
+            Qwen4CpuLayers.HyperConnection.Mixed mixed=hyper.mix(hidden,rows,Boolean.TRUE.equals(request.get("trace_hyper")) ?
+                    (name,values)->hyperTrace.put(name,floats(values)) : null);
             float[] combined=hyper.combine(block,mixed);
+            if(executor!=null) {
+                var replayMix=hyper.mix(hidden,rows);
+                if(!Arrays.equals(mixed.output(),replayMix.output()) || !Arrays.equals(combined,hyper.combine(block,replayMix)))
+                    throw new AssertionError("GPU HC graph/GEMM reuse mismatch");
+            }
             for(Object value:(List<?>)request.get("tokens")) {
                 int token=((Number)value).intValue();
-                var snapshot=state.snapshot();
-                float[] output=ple.forward(token,hidden,state);
-                var accepted=state.snapshot();
-                state.restore(snapshot);
-                float[] replay=ple.forward(token,hidden,state);
-                if(!Arrays.equals(output,replay)) throw new AssertionError("PLE rollback/replay mismatch");
-                if(!Arrays.equals(accepted.convolution(),state.snapshot().convolution())) throw new AssertionError("PLE state replay mismatch");
-                results.add(floats(output));
+                try(var snapshot=state.snapshot()) {
+                    float[] output=ple.forward(token,hidden,state,fused);
+                    try(var accepted=state.snapshot()) {
+                        state.restore(snapshot);
+                        float[] replay=ple.forward(token,hidden,state,fused);
+                        if(!Arrays.equals(output,replay)) throw new AssertionError("PLE rollback/replay mismatch");
+                        if(executor==null) try(var replayed=state.snapshot()) {
+                            if(!Arrays.equals(accepted.convolution(),replayed.convolution())) throw new AssertionError("PLE state replay mismatch");
+                        }
+                        state.restore(accepted);
+                    }
+                    results.add(floats(output));
+                }
             }
             state.reset();
             int first=((Number)((List<?>)request.get("tokens")).get(0)).intValue();
-            if(!floats(ple.forward(first,hidden,state)).equals(results.get(0))) throw new AssertionError("PLE reset mismatch");
-            System.out.println(Json.write(Map.of("normalized",floats(mixed.normalized()),"mixed",floats(mixed.output()),"combined",floats(combined),"ple",results,
-                    "rollback_exact",true,"reset_exact",true,"cache_resident_bytes",reader.statistics().residentBytes())));
+            if(!floats(ple.forward(first,hidden,state,fused)).equals(results.get(0))) throw new AssertionError("PLE reset mismatch");
+            if(executor!=null) {
+                try(var foreign=ple.newState();var saved=state.snapshot()) {
+                    var forged=new Qwen4CpuLayers.Ple.State.Snapshot(foreign,saved.history(),new float[0],saved.device());
+                    try {foreign.restore(forged);throw new AssertionError("Foreign PLE checkpoint accepted");} catch(IllegalArgumentException expected) {}
+                    if(!floats(ple.forward(first,hidden,foreign,fused)).equals(results.get(0))) throw new AssertionError("PLE sequences share state");
+                }
+                var snapshots=new ArrayList<Qwen4CpuLayers.Ple.State.Snapshot>();
+                try {
+                    for(int i=0;i<((Number)request.getOrDefault("checkpoint_capacity",4)).intValue();i++) snapshots.add(state.snapshot());
+                    try {state.snapshot();throw new AssertionError("Unbounded PLE checkpoint pool");} catch(IllegalStateException expected) {}
+                } finally {for(var saved:snapshots) saved.close();}
+                var stale=state.snapshot();state.reset();
+                try(var current=state.snapshot()) {
+                    try {state.restore(stale);throw new AssertionError("PLE checkpoint survived reset");} catch(IllegalArgumentException expected) {}
+                    stale.close();state.restore(current);
+                    var held=new ArrayList<Qwen4CpuLayers.Ple.State.Snapshot>();
+                    try {
+                        for(int i=1;i<((Number)request.getOrDefault("checkpoint_capacity",4)).intValue();i++) held.add(state.snapshot());
+                        try {state.snapshot();throw new AssertionError("Stale PLE close released a current slot");} catch(IllegalStateException expected) {}
+                    } finally {for(var saved:held) saved.close();}
+                }
+                state.reset();
+                float[] added=ple.apply(first,hidden,state,fused),delta=values((List<?>)results.getFirst());
+                for(int i=0;i<added.length;i++) if(added[i]!=FloatFormats.roundBf16(hidden[i]+delta[i])) throw new AssertionError("GPU PLE residual add differs");
+            }
+            var stats=reader.statistics();
+            var report=new LinkedHashMap<String,Object>();
+            report.put("normalized",floats(mixed.normalized()));report.put("mixed",floats(mixed.output()));report.put("combined",floats(combined));report.put("ple",results);
+            if(!hyperTrace.isEmpty()) report.put("hyper_trace",hyperTrace);
+            report.put("rollback_exact",true);report.put("reset_exact",true);report.put("hc_rows",rows);report.put("fused_ple_decode",fused);
+            report.put("cache_resident_bytes",stats.residentBytes());report.put("page_misses",stats.misses());report.put("file_bytes_read",stats.bytesRead());
+            if(executor!=null) {
+                state.close();hyper.close();
+                try {ple.forward(first,hidden,state,fused);throw new AssertionError("Closed PLE state executed");} catch(IllegalStateException expected) {}
+                try {hyper.mix(hidden);throw new AssertionError("Closed HC executed");} catch(IllegalStateException expected) {}
+                report.put("foreign_checkpoint_refused",true);report.put("reset_checkpoint_refused",true);report.put("independent_sequences",true);
+                report.put("checkpoint_pool_bounded",true);report.put("use_after_close_refused",true);report.put("residual_add_exact",true);
+            }
+            return report;
+            }
         }
     }
     private static void deltaNet(Path model,Qwen4Configuration config,Map<String,Object> request) throws Exception {

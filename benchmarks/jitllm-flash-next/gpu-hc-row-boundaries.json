@@ -1,0 +1,1530 @@
+{
+  "passed": true,
+  "scope": "Real layer-1 HC/PLE across SM120 HC row-policy boundaries through the 4096-token chunk geometry; fused decode gate oracle and 12 PLE tokens per case. Not full-model long-context qualification.",
+  "requested_rows": [
+    1,
+    16,
+    17,
+    32,
+    33,
+    64,
+    1024,
+    4096
+  ],
+  "completed_rows": [
+    1,
+    16,
+    17,
+    32,
+    33,
+    64,
+    1024,
+    4096
+  ],
+  "reports": [
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 1,
+      "hc_mix_precision": "F32 projections",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "hyper_mixes": 2,
+        "checkpoints": 34,
+        "restores": 25,
+        "buffer_budget_refused": true,
+        "hyper_combines": 2,
+        "kernel_ns": 34931932,
+        "ple_forwards": 27,
+        "state_host_download_bytes": 0,
+        "resets": 3,
+        "resident_bytes_after_close": 0
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 0,
+      "bf16_gemm_cache_bytes": 0,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 16,
+      "hc_mix_precision": "F32 projections",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "resets": 3,
+        "resident_bytes_after_close": 0,
+        "hyper_mixes": 2,
+        "checkpoints": 34,
+        "restores": 25,
+        "buffer_budget_refused": true,
+        "hyper_combines": 2,
+        "kernel_ns": 34824729,
+        "ple_forwards": 27,
+        "state_host_download_bytes": 0
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 0,
+      "bf16_gemm_cache_bytes": 0,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 17,
+      "hc_mix_precision": "BF16 projection boundaries",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "resident_bytes_after_close": 0,
+        "resets": 3,
+        "state_host_download_bytes": 0,
+        "ple_forwards": 27,
+        "kernel_ns": 34573180,
+        "hyper_combines": 2,
+        "buffer_budget_refused": true,
+        "restores": 25,
+        "checkpoints": 34,
+        "hyper_mixes": 2
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 4,
+      "bf16_gemm_cache_bytes": 81018784,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 32,
+      "hc_mix_precision": "BF16 projection boundaries",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "hyper_combines": 2,
+        "buffer_budget_refused": true,
+        "restores": 25,
+        "checkpoints": 34,
+        "hyper_mixes": 2,
+        "resident_bytes_after_close": 0,
+        "resets": 3,
+        "state_host_download_bytes": 0,
+        "ple_forwards": 27,
+        "kernel_ns": 34450396
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 4,
+      "bf16_gemm_cache_bytes": 81652384,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 33,
+      "hc_mix_precision": "BF16 projection boundaries",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "kernel_ns": 34477050,
+        "hyper_combines": 2,
+        "buffer_budget_refused": true,
+        "restores": 25,
+        "checkpoints": 34,
+        "hyper_mixes": 2,
+        "resident_bytes_after_close": 0,
+        "resets": 3,
+        "state_host_download_bytes": 0,
+        "ple_forwards": 27
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 4,
+      "bf16_gemm_cache_bytes": 81694624,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 64,
+      "hc_mix_precision": "BF16 projection boundaries",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "buffer_budget_refused": true,
+        "restores": 25,
+        "checkpoints": 34,
+        "hyper_mixes": 2,
+        "resident_bytes_after_close": 0,
+        "resets": 3,
+        "state_host_download_bytes": 0,
+        "ple_forwards": 27,
+        "kernel_ns": 34906325,
+        "hyper_combines": 2
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 4,
+      "bf16_gemm_cache_bytes": 83004064,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 1024,
+      "hc_mix_precision": "BF16 projection boundaries",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "ple_forwards": 27,
+        "state_host_download_bytes": 0,
+        "resets": 3,
+        "resident_bytes_after_close": 0,
+        "hyper_mixes": 2,
+        "checkpoints": 34,
+        "restores": 25,
+        "buffer_budget_refused": true,
+        "hyper_combines": 2,
+        "kernel_ns": 34866200
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 4,
+      "bf16_gemm_cache_bytes": 123554464,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    },
+    {
+      "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+      "tokens": [
+        248044,
+        9419,
+        1814,
+        0,
+        248044,
+        109266,
+        96748,
+        16,
+        17,
+        18,
+        19,
+        20
+      ],
+      "dtype": "BF16",
+      "rtol": 0.008,
+      "atol": 0.0001,
+      "passed": true,
+      "hc_rows": 4096,
+      "hc_mix_precision": "BF16 projection boundaries",
+      "fused_ple_decode": true,
+      "rollback_exact": true,
+      "reset_exact": true,
+      "cache_resident_bytes": 999424,
+      "page_misses": 244,
+      "file_bytes_read": 999424,
+      "comparisons": [
+        {
+          "operation": "hyper_normalize",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_mix",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "hyper_combine",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_0",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_1",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_2",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_3",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_4",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_5",
+          "max_absolute_error": 1.52587890625e-05,
+          "rmse": 1.519626238177807e-07,
+          "exact_fraction": 0.999804675579071,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_6",
+          "max_absolute_error": 6.103515625e-05,
+          "rmse": 6.058197072889016e-07,
+          "exact_fraction": 0.999707043170929,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_7",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_8",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_9",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_10",
+          "max_absolute_error": 0.0,
+          "rmse": 0.0,
+          "exact_fraction": 1.0,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        },
+        {
+          "operation": "ple_token_11",
+          "max_absolute_error": 1.9073486328125e-06,
+          "rmse": 1.8848643534852272e-08,
+          "exact_fraction": 0.9999023675918579,
+          "passed": true,
+          "failed_values": 0,
+          "failures": []
+        }
+      ],
+      "gpu_hc_ple": {
+        "hyper_mixes": 2,
+        "checkpoints": 34,
+        "restores": 25,
+        "buffer_budget_refused": true,
+        "hyper_combines": 2,
+        "kernel_ns": 34395611,
+        "ple_forwards": 27,
+        "state_host_download_bytes": 0,
+        "resets": 3,
+        "resident_bytes_after_close": 0
+      },
+      "gpu_projections": true,
+      "bf16_gemm_executions": 4,
+      "bf16_gemm_cache_bytes": 253315744,
+      "projection_bytes_after_close": 0,
+      "foreign_checkpoint_refused": true,
+      "reset_checkpoint_refused": true,
+      "independent_sequences": true,
+      "checkpoint_pool_bounded": true,
+      "use_after_close_refused": true,
+      "residual_add_exact": true
+    }
+  ]
+}

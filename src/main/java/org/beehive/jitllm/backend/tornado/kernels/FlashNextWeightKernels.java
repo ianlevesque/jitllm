@@ -4,12 +4,22 @@ import uk.ac.manchester.tornado.api.annotations.Parallel;
 import uk.ac.manchester.tornado.api.types.arrays.ByteArray;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
 import uk.ac.manchester.tornado.api.types.arrays.IntArray;
+import uk.ac.manchester.tornado.api.types.arrays.BFloat16Array;
 
 /** Storage-preserving reference projections. Activations supplied by the caller are FP32.
  * W4A4 quantization and tensor-core dispatch must be added before using this in the serving plan.
  */
 public final class FlashNextWeightKernels {
     private FlashNextWeightKernels() {}
+    public static void bf16GemmInput(FloatArray input,BFloat16Array packed,int columns,int broadcast) {
+        for(@Parallel int i=0;i<packed.getSize();i++) {
+            float value=FlashNextDeltaNetKernels.bf16(input.get(broadcast==1 ? i%columns : i));
+            packed.set(i,(short)(Float.floatToRawIntBits(value)>>>16));
+        }
+    }
+    public static void bf16GemmOutput(BFloat16Array input,FloatArray output) {
+        for(@Parallel int i=0;i<output.getSize();i++) output.set(i,Float.intBitsToFloat((input.get(i)&65535)<<16));
+    }
 
     public static void denseMatvec(FloatArray input,ByteArray weights,FloatArray output,int columns,int dtype) {
         int width=dtype==2 ? 4 : 2;

@@ -6,6 +6,7 @@ from pathlib import Path
 import struct
 import subprocess
 import tempfile
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -16,9 +17,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PREFIX = "model.language_model.layers.1"
 
 
-def verify(model):
+def verify(model,gpu_hc_ple=False,gpu_projections=False,device=1,hc_rows=1,fused_ple_decode=False,report_only=False,trace_hyper=False):
+    if gpu_projections and not gpu_hc_ple:raise ValueError("--gpu-projections requires --gpu-hc-ple")
     torch.set_num_threads(4)
-    torch.cuda.set_device(1)
+    torch.cuda.set_device(next((i for i in range(torch.cuda.device_count()) if "5090" in torch.cuda.get_device_name(i)),0))
     mapping = json.loads((model / "model.safetensors.index.json").read_text())["weight_map"]
     headers = {}
 
@@ -56,9 +58,9 @@ def verify(model):
     hc=hc.to(device="cuda",dtype=torch.bfloat16)
     hc.load_state_dict({name:weight(h+name).cuda() for name in ["hc_norm.weight","input_mix_weight_down.weight","input_mix_weight_up.weight","block_inject_weight.weight"]})
     with torch.no_grad():
-        mixed,residual=hc.mix(hidden.unsqueeze(0).cuda())
-        combined=hc.combine(block.unsqueeze(0).cuda(),residual).flatten().cpu()
-        normed=residual[1].flatten().cpu();mixed=mixed.flatten().cpu()
+        mixed,residual=hc.mix(hidden.unsqueeze(0).repeat(hc_rows,1).cuda())
+        combined=hc.combine(block.unsqueeze(0).repeat(hc_rows,1).cuda(),residual)[0].flatten().cpu()
+        normed=residual[1][0].flatten().cpu();mixed=mixed[0].flatten().cpu()
 
     ple = PREFIX + ".ple."
     embeddings = ple + "ple_embedding."
@@ -103,8 +105,12 @@ def verify(model):
         query = norm(hidden, norm_query).reshape(branches, hidden_size)
         values = F.linear(embedding, value_weight)
         gate = (keys*query).sum(dim=-1, keepdim=True) / hidden_size**.5
-        gate = gate.abs().clamp_min(1e-6).sqrt()*gate.sign()
-        gated = (torch.sigmoid(gate)*values.unsqueeze(0)).flatten()
+        if fused_ple_decode:
+            from sglang.kernels.ops.qwen4_ple import fused_qwen4_gate_value
+            gated=fused_qwen4_gate_value(gate.unsqueeze(0).cuda().contiguous(),values.unsqueeze(0).cuda().contiguous()).flatten().cpu()
+        else:
+            gate = gate.abs().clamp_min(1e-6).sqrt()*gate.sign()
+            gated = (torch.sigmoid(gate)*values.unsqueeze(0)).flatten()
         normalized = norm(gated, norm_conv)
         conv_input = torch.cat([conv_state, normalized.unsqueeze(-1)], dim=-1)
         conv_output = F.conv1d(conv_input.unsqueeze(0), conv, dilation=config["ngram_size"], groups=hyper_size).flatten()
@@ -113,12 +119,16 @@ def verify(model):
 
     with tempfile.TemporaryDirectory(prefix="jitllm-layer-parity-") as temp:
         request = Path(temp) / "request.json"
-        request.write_text(json.dumps({"hidden": hidden.float().tolist(), "block": block.float().tolist(), "tokens": tokens}))
-        result = subprocess.run(["java", "-Xmx1g", "-cp", str(ROOT / "target/classes"),
-                                 "org.beehive.jitllm.integration.cli.FlashNextLayerProbe", str(model), str(request)], capture_output=True, text=True)
+        request.write_text(json.dumps({"hidden": hidden.float().tolist(), "block": block.float().tolist(), "tokens": tokens,
+                                       "gpu_projections":gpu_projections,"device":device,"hc_rows":hc_rows,"fused_ple_decode":fused_ple_decode,"trace_hyper":trace_hyper}))
+        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"hc-ple-probe",str(model),str(request)] if gpu_hc_ple else [
+                "java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        result = subprocess.run(command,capture_output=True,text=True)
         if result.returncode:
             raise RuntimeError(result.stderr)
-        actual = json.loads(result.stdout)
+        lines=[line for line in result.stdout.splitlines() if line.startswith('{"')]
+        if len(lines)!=1:raise RuntimeError("Expected one HC/PLE report: "+result.stdout)
+        actual=json.loads(lines[0])
 
     comparisons = []
     for name, expected, observed in [("hyper_normalize", normed, actual["normalized"]), ("hyper_mix", mixed, actual["mixed"]), ("hyper_combine", combined, actual["combined"])]+[
@@ -126,25 +136,64 @@ def verify(model):
         reference = expected.float()
         decoded = torch.tensor(observed)
         differences = decoded - reference
+        close=torch.isclose(decoded,reference,rtol=.008,atol=.0001)
         comparisons.append({"operation": name, "max_absolute_error": differences.abs().max().item(), "rmse": differences.square().mean().sqrt().item(),
-                            "exact_fraction": (differences == 0).float().mean().item()})
+                            "exact_fraction": (differences == 0).float().mean().item(),"passed":bool(close.all()),"failed_values":int((~close).sum()),
+                            "failures":[{"index":int(i),"actual":float(decoded.flatten()[i]),"reference":float(reference.flatten()[i])} for i in (~close).flatten().nonzero().flatten()[:10]]})
     for name, expected, observed in [("hyper_normalize", normed, actual["normalized"]), ("hyper_mix", mixed, actual["mixed"]), ("hyper_combine", combined, actual["combined"])]+[
             (f"ple_token_{i}", value, actual["ple"][i]) for i, value in enumerate(expected_ple)]:
         # BF16 inputs/outputs with different FP32 reduction orders can cross a rounding
         # boundary. Cancellation in gated + convolution output magnifies relative error;
         # retain a small absolute bound as well as a one-step relative BF16 bound.
-        torch.testing.assert_close(torch.tensor(observed), expected.float(), rtol=.008, atol=.0001, msg=name)
+        if not report_only:torch.testing.assert_close(torch.tensor(observed), expected.float(), rtol=.008, atol=.0001, msg=name)
     assert actual["cache_resident_bytes"] <= 1048576
-    return {"checkpoint": str(model.resolve()), "tokens": tokens, "dtype": "BF16", "rtol": .008, "atol": .0001,
-            "rollback_exact": actual["rollback_exact"], "reset_exact": actual["reset_exact"], "cache_resident_bytes": actual["cache_resident_bytes"], "comparisons": comparisons}
+    report={"checkpoint": str(model.resolve()), "tokens": tokens, "dtype": "BF16", "rtol": .008, "atol": .0001,"passed":all(c["passed"] for c in comparisons),
+            "hc_rows":hc_rows,"hc_mix_precision":"F32 projections" if hc_rows<=16 else "BF16 projection boundaries",
+            "fused_ple_decode":fused_ple_decode,"rollback_exact": actual["rollback_exact"], "reset_exact": actual["reset_exact"],
+            "cache_resident_bytes": actual["cache_resident_bytes"],"page_misses":actual["page_misses"],"file_bytes_read":actual["file_bytes_read"],"comparisons": comparisons}
+    if gpu_hc_ple:
+        stats=actual["gpu_hc_ple"]
+        assert stats["kernel_ns"]>0 and stats["state_host_download_bytes"]==0 and stats["resident_bytes_after_close"]==0
+        report["gpu_hc_ple"]=stats
+        report["gpu_projections"]=gpu_projections
+        if gpu_projections:
+            report["bf16_gemm_executions"]=actual["bf16_gemm_executions"]
+            report["bf16_gemm_cache_bytes"]=actual["bf16_gemm_cache_bytes"]
+            assert actual["projection_bytes_after_close"]==0
+            report["projection_bytes_after_close"]=0
+        for key in ("foreign_checkpoint_refused","reset_checkpoint_refused","independent_sequences","checkpoint_pool_bounded","use_after_close_refused","residual_add_exact"):
+            assert actual[key];report[key]=actual[key]
+    if trace_hyper:
+        with torch.no_grad():
+            normalized=residual[1]
+            down=F.linear(normalized,hc.input_mix_weight_down.weight)
+            low=F.silu(down/branches)
+            up=F.linear(low,hc.input_mix_weight_up.weight)
+            reconstructed=(torch.sigmoid(up.float()).reshape(hc_rows,branches,hidden_size)*normalized.float().reshape(hc_rows,branches,hidden_size)).mean(1).to(torch.bfloat16)[0].cpu()
+        trace=actual["hyper_trace"]
+        detail=[]
+        for name,expected in [("down_bf16",down[0].cpu()),("low",low[0].cpu()),("up_bf16",up[0].cpu()),("reconstructed_mix",reconstructed)]:
+            actual_tensor=torch.tensor(trace["down_raw"]).to(torch.bfloat16) if name=="down_bf16" else torch.tensor(trace["up_raw"]).to(torch.bfloat16) if name=="up_bf16" else torch.tensor(trace["low"]) if name=="low" else torch.tensor(actual["mixed"])
+            diff=actual_tensor.float()-expected.float();indices=(diff!=0).nonzero().flatten()
+            detail.append({"operation":name,"max_error":float(diff.abs().max()),"different_values":int(indices.numel()),
+                           "examples":[{"index":int(i),"actual":float(actual_tensor[i]),"reference":float(expected[i])} for i in indices[:10]]})
+        report["hyper_trace_comparisons"]=detail
+    return report
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("model", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--gpu-hc-ple",action="store_true")
+    parser.add_argument("--gpu-projections",action="store_true")
+    parser.add_argument("--device",type=int,default=1)
+    parser.add_argument("--hc-rows",type=int,default=1)
+    parser.add_argument("--fused-ple-decode",action="store_true")
+    parser.add_argument("--report-only",action="store_true",help="Write failed numeric comparisons as passed=false without stopping")
+    parser.add_argument("--trace-hyper",action="store_true")
     args = parser.parse_args()
-    report = json.dumps(verify(args.model), indent=2)
+    report = json.dumps(verify(args.model,args.gpu_hc_ple,args.gpu_projections,args.device,args.hc_rows,args.fused_ple_decode,args.report_only,args.trace_hyper), indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(report + "\n")

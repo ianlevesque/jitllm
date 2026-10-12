@@ -3,7 +3,7 @@
 The goal is native JITLLM inference and serving of
 `nvidia/Qwen3.8-Flash-Next-NVFP4`, with bounded NVMe PLE/Engram staging and the
 features of the original launcher's `qwen-flash-next-staged` profile. The full 48-layer text pipeline now executes on the host and with native GPU
-weight projections and DeltaNet state updates. The recorded 16-token ChatML
+weight projections, DeltaNet state updates and HC/PLE arithmetic. The recorded 16-token ChatML
 comparison now matches three greedy staged-reference tokens exactly; broader
 full-model correctness remains to be qualified. The normal JITLLM loader/API can load the
 checkpoint on CPU; production GPU serving is still under implementation.
@@ -141,6 +141,55 @@ are released, and retry still matches the uncached reference exactly. This is a
 failure/retry check for the same short case, not broader text qualification.
 
 
+
+CUDA HC normalization, low-rank activation, gated mixing and residual injection,
+and PLE normalization, signed-root gating, dilated convolution and residual add
+are now optional native operations. PLE history remains request owned on the
+GPU, with bounded device checkpoints and exact rollback/reset. Only gathered
+Engram rows and projection outputs are transferred; the 51.2 GB table remains
+in the positional-file reader. These operations still exchange activation
+vectors with the host between projection plans; device-resident plan fusion is
+remaining work.
+
+`gpu-hc-ple-parity.json` checks real layer-1 weights against the staged HC CUDA
+implementation and an independent BF16 PLE sequence. HC is exact and the maximum
+PLE difference is 0.00006103515625 at the unchanged rtol 0.008 / atol 0.0001.
+`gpu-hc-row-boundaries.json` covers 1, 16, 17, 32, 33, 64, 1,024 and 4,096-row
+geometries, with SGLang's actual fused PLE decode gate. Every HC comparison is
+exact. It also checks graph replay, independent PLE states, checkpoint pool and
+buffer budgets, stale/foreign checkpoint rejection, residual add, closed-state
+refusal and zero tracked buffers after close. These are subsystem checks, not
+full-model long-context qualification.
+
+SM120 HC mixing uses F32 projection accumulators for <=16 rows. Larger prefill
+chunks use native BF16 GEMM with the actual batch geometry and a 32 MiB cuBLAS
+workspace, matching the staged runtime. HC combine retains F32 accumulation
+across the tested row counts. The sequential diagnostic runner repeats its
+current row to obtain the same GEMM geometry; efficient batched prefill still
+needs to use distinct rows and keep activations on the device. The separate
+BF16 GEMM cache is capped at min(main matrix cache budget, 256 MiB), including
+workspaces. Plans are owned by their caller thread so stream changes cannot
+reset a shared cuBLAS workspace.
+
+`gpu-bf16-batch-parity.json` verifies the distinct-row native GEMM primitive on
+both real HC matrices at batches 1, 33 and 64. All six cases match PyTorch
+exactly, including graph reuse, caller-thread changes, checkpoint-byte
+preservation and zero tracked memory after close. This adds BF16 tensor-core
+execution; packed NVFP4 tensor-core execution is still required.
+The `pre-gemm` and `pre-workspace` HC reports preserve the earlier strict
+failures at 33 and 1,024 rows and the traces that identified their causes.
+
+`full-gpu-hc-ple-rollback-conformance.json` repeats the 16-token ChatML case
+with GPU HC/PLE and DeltaNet enabled, including an injected layer-20 failure.
+It restores all 36 recurrent states and the PLE state, releases transaction
+checkpoints, and still emits `[17, 478, 220]` exactly like a fresh uncached
+staged request. `full-gpu-hc-ple-bf-prefill-conformance.json` adds a 17-token
+prefill that executes 3,298 native BF16 GEMMs; its three greedy tokens also
+match the uncached reference. Both keep the file reader at 1 MiB and release
+tracked HC/PLE buffers at engine close. These two short cases do not establish
+full GPU serving, broad text accuracy or full-context/concurrent inference.
+The sequential runs took about 213 and 259 seconds on the RTX 5090.
+
 ## Build and reproduce checks
 
 Run commands from the root of this JITLLM checkout. Use JDK 25 and the pinned CUDA
@@ -155,7 +204,7 @@ python3 -m unittest discover -s scripts/flash-next -p 'test_*.py' -v
 
 The checkpoint fixture suite compiles only the storage-reader Java subset and
 requires a JDK, with no checkpoint, Python packages, TornadoVM or GPU needed.
-The current upstream suite runs 799 tests with zero failures/errors and three
+The current upstream suite runs 802 tests with zero failures/errors and three
 skipped; the original launcher suite ran 112 tests. The 14 portable checkpoint
 fixture tests are included in this fork. `regression-tests.json` preserves the
 original commands and counts as historical evidence. The JITLLM test command
@@ -171,7 +220,9 @@ unless `JVMCI_SOURCE_JDK` points to one. `JAVA_HOME`/PATH must select JDK 25;
 CUDA/cuDNN compiler headers and libraries must be available. For pip-installed
 CUDA 13 and cuDNN 9, export `JITLLM_NVIDIA_DIR` as their containing `nvidia`
 directory (the directory containing `cu13` and `cudnn`). Otherwise the helper
-uses the system compiler/linker environment.
+uses the system compiler/linker environment. Private unversioned aliases for
+CUDA 13/cuBLAS/cuDNN let the pinned SDK bind the same vendor libraries as the
+reference environment; occupied or redirected alias paths are rejected.
 
 ```bash
 python3 scripts/flash-next/prepare_jitllm_runtime.py
@@ -200,6 +251,8 @@ python scripts/flash-next/verify_jitllm_gpu.py MODEL_DIR --device 1
 python scripts/flash-next/verify_jitllm_metadata.py MODEL_DIR
 python scripts/flash-next/verify_jitllm_layers.py MODEL_DIR
 python scripts/flash-next/verify_jitllm_deltanet.py MODEL_DIR
+python scripts/flash-next/verify_jitllm_layers.py MODEL_DIR --gpu-hc-ple --gpu-projections --fused-ple-decode --hc-rows 4096
+python scripts/flash-next/verify_jitllm_bf16_batch.py MODEL_DIR
 python scripts/flash-next/verify_jitllm_deltanet.py MODEL_DIR --gpu-recurrence --gpu-projections --device 1
 python scripts/flash-next/verify_jitllm_qsa.py MODEL_DIR --fp8-kv --fused-precision --fresh-prefill
 python scripts/flash-next/verify_jitllm_activation.py MODEL_DIR
@@ -221,9 +274,13 @@ python3 scripts/flash-next/jitllm_runtime.py api-probe MODEL_DIR
 python3 scripts/flash-next/jitllm_runtime.py model-probe MODEL_DIR REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py cache-probe MODEL_DIR CACHE_REQUEST.json --device 1
 python3 scripts/flash-next/jitllm_runtime.py recurrent-probe MODEL_DIR RECURRENT_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py hc-ple-probe MODEL_DIR HC_PLE_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py bf16-batch-probe MODEL_DIR BF16_BATCH_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-recurrence.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-rollback.json
+python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-hc-ple-rollback.json
+python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-hc-ple-bf-prefill.json
 ```
 
 The included example reproduces the 16-token prompt and requests three greedy
@@ -239,7 +296,10 @@ recurrent updates, PLE gating, routing and other nonlinear operations still run
 on the host unless `gpu_recurrence: true` selects CUDA DeltaNet. Its
 `checkpoint_capacity` defaults to eight per layer/sequence, and `gpu_state_bytes`
 defaults to 4 GiB across all live recurrent sessions and checkpoint banks.
-HC, PLE, QSA and MoE nonlinear work still runs on the host. This is an experimental diagnostic path, not the full GPU model
+Setting `gpu_hc_ple: true` also selects CUDA HC and PLE arithmetic.
+Its `gpu_layer_bytes` budget defaults to 64 MiB for model HC buffers and
+request PLE buffers/checkpoints. QSA and MoE nonlinear work remains on the host.
+This is an experimental diagnostic path, not the full GPU model
 provider. `cache-probe` takes a `matrices` list of checkpoint projection prefixes
 and an optional `cache_bytes` budget.
 
@@ -247,9 +307,8 @@ and an optional `cache_bytes` budget.
 
 1. Broaden text conformance beyond the successful short ChatML case. Resolve
    the strict MoE numeric differences, validate prompt/decode and reused-session
-   trajectories, and preserve the historical failure record. Long prefill also
-   needs the staged HC projection precision policy.
-2. Implement full GPU hyper-connection, PLE, QSA and MoE execution,
+   trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
+2. Implement full GPU QSA and MoE execution and fuse the native layer plans,
    including efficient packed NVFP4 tensor-core projections. Connect that plan
    to the normal model provider; it currently refuses full GPU loads explicitly.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index

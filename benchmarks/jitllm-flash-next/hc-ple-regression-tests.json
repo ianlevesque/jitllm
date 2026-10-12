@@ -1,0 +1,63 @@
+{
+  "jitllm": {
+    "tests_run": 802,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "launcher": {
+    "tests_run": 112,
+    "passed": true
+  },
+  "portable_checkpoint_fixtures": {
+    "tests_run": 14,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 58,
+    "exact_match": true
+  },
+  "hc_ple_row_geometries": {
+    "rows": [
+      1,
+      16,
+      17,
+      32,
+      33,
+      64,
+      1024,
+      4096
+    ],
+    "passed": true,
+    "scope": "Subsystem numeric and lifecycle checks; not full-context inference."
+  },
+  "bf16_batch": {
+    "cases": 6,
+    "all_exact": true,
+    "caller_thread_replay_exact": true,
+    "source_bytes_unchanged": true
+  },
+  "full_model_rollback": {
+    "prompt_tokens": 16,
+    "reference_cached_tokens": 0,
+    "generated_tokens": [
+      17,
+      478,
+      220
+    ],
+    "passed": true
+  },
+  "remaining": "GPU QSA/MoE nonlinear execution and plan fusion, packed NVFP4 tensor cores, efficient batched prefill, MTP, vision/chat replay, context/concurrency and serving qualification. Strict MoE numeric gate remains red.",
+  "full_model_bf_prefill": {
+    "prompt_tokens": 17,
+    "reference_cached_tokens": 0,
+    "generated_tokens": [
+      17,
+      478,
+      220
+    ],
+    "bf16_gemm_executions": 3298,
+    "passed": true
+  }
+}

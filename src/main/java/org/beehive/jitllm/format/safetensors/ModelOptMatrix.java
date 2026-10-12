@@ -96,6 +96,15 @@ public final class ModelOptMatrix {
         if(executor!=null) { executor.multiply(this,input,output); return; }
         multiplyReference(input,output);
     }
+    /** BF16 projection boundary, with batch geometry supplied to hardware GEMM executors. */
+    public void multiplyBf16(float[] input,float[] output,int prefillRows) throws IOException {
+        if(input.length!=columns || output.length!=rows || prefillRows<=0) throw new IllegalArgumentException("Invalid BF16 projection geometry");
+        if(executor!=null) executor.multiplyBf16(this,input,output,prefillRows);
+        else {
+            multiplyReference(input,output);
+            for(int i=0;i<output.length;i++) output[i]=FloatFormats.roundBf16(output[i]);
+        }
+    }
 
     public void multiplyReference(float[] input,float[] output) throws IOException {
         if (input.length != columns || output.length != rows) throw new IllegalArgumentException("Matrix dimensions disagree");

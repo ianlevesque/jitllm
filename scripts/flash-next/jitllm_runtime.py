@@ -24,6 +24,8 @@ def runtime_environment(install: Path = INSTALL) -> tuple[Path, dict]:
     paths = [str(sdk / "lib")]
     if env.get("JITLLM_NVIDIA_DIR"):
         native = Path(env["JITLLM_NVIDIA_DIR"])
+        from jitllm_native_libraries import prepare_native_aliases
+        paths.append(str(prepare_native_aliases(native,ROOT/".local/jitllm-native-libs")))
         paths.extend(str(native / path) for path in ("cudnn/lib", "cu13/lib"))
     if env.get("LD_LIBRARY_PATH"):
         paths.append(env["LD_LIBRARY_PATH"])
@@ -41,7 +43,7 @@ def main():
     probe.add_argument("model", type=Path)
     probe.add_argument("--matrix", default="model.language_model.layers.0.mlp.experts.0.gate_proj")
     probe.add_argument("--device", type=int, default=1, help="TornadoVM device ordinal; inspect devices first")
-    for name in ("generate", "model-probe", "cache-probe", "api-probe", "recurrent-probe"):
+    for name in ("generate", "model-probe", "cache-probe", "api-probe", "recurrent-probe", "hc-ple-probe", "bf16-batch-probe"):
         runner = commands.add_parser(name)
         runner.add_argument("model", type=Path)
         if name != "api-probe":
@@ -61,7 +63,7 @@ def main():
             inputs = [str(args.model), args.matrix, str(args.device)]
         else:
             main_class = {"generate": "FlashNextCpuGenerate", "model-probe": "FlashNextModelProbe",
-                          "cache-probe": "FlashNextCacheProbe", "api-probe": "FlashNextApiProbe", "recurrent-probe": "FlashNextDeltaNetProbe"}[args.command]
+                          "cache-probe": "FlashNextCacheProbe", "api-probe": "FlashNextApiProbe", "recurrent-probe": "FlashNextDeltaNetProbe", "hc-ple-probe": "FlashNextHcPleProbe", "bf16-batch-probe": "FlashNextBf16BatchProbe"}[args.command]
             inputs = [str(args.model)]
             if args.command != "api-probe":
                 inputs.append(str(args.request))

@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+from jitllm_native_libraries import prepare_native_aliases
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -32,17 +33,7 @@ def prepare_runtime() -> None:
     # Optional pip-installed CUDA 13/cuDNN 9 dependencies. Otherwise use the system toolchain.
     if env.get("JITLLM_NVIDIA_DIR"):
         native = Path(env["JITLLM_NVIDIA_DIR"]).resolve()
-        libraries = ROOT / ".local/jitllm-native-libs"
-        libraries.mkdir(parents=True, exist_ok=True)
-        for name, origin in {"libcudnn.so": native / "cudnn/lib/libcudnn.so.9", "libcudart.so": native / "cu13/lib/libcudart.so.13", "libnvrtc.so": native / "cu13/lib/libnvrtc.so.13"}.items():
-            if not origin.exists():
-                raise RuntimeError(f"Missing native CUDA dependency: {origin}")
-            link = libraries / name
-            if link.is_symlink():
-                link.unlink()
-            elif link.exists():
-                raise RuntimeError(f"Native library link path is occupied: {link}")
-            link.symlink_to(origin)
+        libraries = prepare_native_aliases(native,ROOT / ".local/jitllm-native-libs")
         env["CPLUS_INCLUDE_PATH"] = ":".join([str(native / "cudnn/include"), str(native / "cu13/include"), env.get("CPLUS_INCLUDE_PATH", "")])
         env["LIBRARY_PATH"] = ":".join([str(libraries), env.get("LIBRARY_PATH", "")])
     subprocess.run([str(ROOT / "scripts/tornadovm-dev.sh"), "setup", "--ref", TORNADOVM_REF,

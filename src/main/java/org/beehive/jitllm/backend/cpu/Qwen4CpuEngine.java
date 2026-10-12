@@ -8,6 +8,7 @@ import org.beehive.jitllm.format.safetensors.*;
 import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
 import org.beehive.jitllm.tokenizer.Qwen4Tokenizer;
 import org.beehive.jitllm.inference.op.DeltaNetExecutor;
+import org.beehive.jitllm.inference.op.FlashNextLayerExecutor;
 
 /** Full Flash-Next host forward pass. Weight storage and PLE stay in the original checkpoint. */
 public final class Qwen4CpuEngine implements AutoCloseable {
@@ -42,6 +43,11 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         private void requireOpen() {if(closed || Qwen4CpuEngine.this.closed) throw new IllegalStateException("Flash-Next sequence is closed");}
         public int position() { return position; }
         public boolean requiresLogits() { return prefillEnd==0 || position+1>=prefillEnd; }
+        public int prefillRows() {
+            if(position>=prefillEnd) return 1;
+            int chunkStart=position-(position-prefillStart)%4096;
+            return Math.min(4096,prefillEnd-chunkStart);
+        }
         /** Match SGLang's no-prefix first chunk; later chunks attend through the FP8 pool. */
         public void beginInitialPrefill(int tokens) {
             if(position!=0 || tokens<=0 || tokens>config.contextLength()) throw new IllegalArgumentException("Invalid initial prefill");
@@ -59,14 +65,20 @@ public final class Qwen4CpuEngine implements AutoCloseable {
             for(var state:attention) if(state!=null) state.finishFreshPrefill();
         }
         public record Snapshot(Sequence owner,int position,int freshPrefillEnd,int prefillEnd,int prefillStart,Qwen4DeltaNet.State.Snapshot[] delta,Qwen4QsaAttention.State.Snapshot[] attention,Qwen4CpuLayers.Ple.State.Snapshot[] ple) implements AutoCloseable {
-            @Override public void close() {for(var snapshot:delta) if(snapshot!=null) snapshot.close();}
+            @Override public void close() {
+                for(var snapshot:delta) if(snapshot!=null) snapshot.close();
+                for(var snapshot:ple) if(snapshot!=null) snapshot.close();
+            }
         }
         public Snapshot snapshot() throws IOException {
             requireOpen();
             var ds=new Qwen4DeltaNet.State.Snapshot[layers.length];var as=new Qwen4QsaAttention.State.Snapshot[layers.length];var ps=new Qwen4CpuLayers.Ple.State.Snapshot[layers.length];
             try {
                 for(int i=0;i<layers.length;i++) {if(delta[i]!=null) ds[i]=delta[i].snapshot();if(attention[i]!=null) as[i]=attention[i].snapshot();if(ple[i]!=null) ps[i]=ple[i].snapshot();}
-            } catch(IOException|RuntimeException|Error failure) {for(var snapshot:ds) if(snapshot!=null) snapshot.close();throw failure;}
+            } catch(IOException|RuntimeException|Error failure) {
+                for(var snapshot:ds) if(snapshot!=null) snapshot.close();
+                for(var snapshot:ps) if(snapshot!=null) snapshot.close();throw failure;
+            }
             return new Snapshot(this,position,freshPrefillEnd,prefillEnd,prefillStart,ds,as,ps);
         }
         public void restore(Snapshot snapshot) throws IOException {
@@ -89,6 +101,9 @@ public final class Qwen4CpuEngine implements AutoCloseable {
             for(var state:delta) if(state!=null) try {state.close();} catch(IOException closing) {
                 if(failure==null) failure=closing;else failure.addSuppressed(closing);
             }
+            for(var state:ple) if(state!=null) try {state.close();} catch(IOException closing) {
+                if(failure==null) failure=closing;else failure.addSuppressed(closing);
+            }
             synchronized(Qwen4CpuEngine.this) {sequences.remove(this);}if(failure!=null) throw failure;
         }
     }
@@ -99,6 +114,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
     private final Qwen4CpuLayers.HyperConnection mixer;
     private final Layer[] layers;
     private final Set<Sequence> sequences=Collections.newSetFromMap(new IdentityHashMap<>());
+    private final List<Qwen4CpuLayers.HyperConnection> hyperResources=new ArrayList<>();
     private boolean closed;
 
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded) throws IOException {
@@ -108,6 +124,9 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         this(directory,context,pageBudget,onLoaded,executor,null);
     }
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor) throws IOException {
+        this(directory,context,pageBudget,onLoaded,executor,recurrentExecutor,null);
+    }
+    public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor,FlashNextLayerExecutor layerExecutor) throws IOException {
         config=Qwen4Configuration.load(directory,context);
         tokenizer=Qwen4Tokenizer.load(directory);
         reader=new PagedTensorReader(pageBudget,4096);
@@ -116,23 +135,25 @@ public final class Qwen4CpuEngine implements AutoCloseable {
             String root="model.language_model";
             embedding=Qwen4CpuLayers.matrix(index,reader,root+".embed_tokens",config.vocabularySize(),config.dim(),executor);
             lmHead=Qwen4CpuLayers.matrix(index,reader,"lm_head",config.vocabularySize(),config.dim(),executor);
-            mixer=new Qwen4CpuLayers.HyperConnection(config,index,reader,root+".hyper_connection_mixer",false,executor);
+            mixer=own(new Qwen4CpuLayers.HyperConnection(config,index,reader,root+".hyper_connection_mixer",false,executor,layerExecutor));
             layers=new Layer[config.numberOfLayers()];
             for(int i=0;i<layers.length;i++) {
                 String prefix=root+".layers."+i;
-                var attentionMix=new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".attn_hyper_connection",true,executor);
-                var mlpMix=new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".mlp_hyper_connection",true,executor);
+                var attentionMix=own(new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".attn_hyper_connection",true,executor,layerExecutor));
+                var mlpMix=own(new Qwen4CpuLayers.HyperConnection(config,index,reader,prefix+".mlp_hyper_connection",true,executor,layerExecutor));
                 var delta=config.isRecurrentLayer(i) ? new Qwen4DeltaNet(config,index,reader,prefix+".linear_attn",executor,recurrentExecutor) : null;
                 var attention=config.isRecurrentLayer(i) ? null : new Qwen4QsaAttention(config,index,reader,prefix+".self_attn",true,true,executor);
                 var moe=new Qwen4Moe(config,index,reader,prefix+".mlp",executor);
-                var ple=config.hasPle(i) ? new Qwen4CpuLayers.Ple(config,index,reader,prefix+".ple",executor) : null;
+                var ple=config.hasPle(i) ? new Qwen4CpuLayers.Ple(config,index,reader,prefix+".ple",executor,layerExecutor) : null;
                 layers[i]=new Layer(attentionMix,mlpMix,delta,attention,moe,ple);
                 if(onLoaded!=null) onLoaded.accept(i+1,layers.length);
             }
         } catch(IOException|RuntimeException|Error failure) {
+            for(var resource:hyperResources) try {resource.close();} catch(IOException closing) {failure.addSuppressed(closing);}
             try {reader.close();} catch(IOException closing) {failure.addSuppressed(closing);} throw failure;
         }
     }
+    private Qwen4CpuLayers.HyperConnection own(Qwen4CpuLayers.HyperConnection resource) {hyperResources.add(resource);return resource;}
     public Qwen4Configuration configuration() { return config; }
     public Qwen4Tokenizer tokenizer() { return tokenizer; }
     public synchronized Sequence newSequence() { if(closed) throw new IllegalStateException("Engine is closed");var sequence=new Sequence();sequences.add(sequence);return sequence; }
@@ -142,28 +163,27 @@ public final class Qwen4CpuEngine implements AutoCloseable {
             throw new IllegalArgumentException("Invalid model input/state/context");
         var before=sequence.snapshot();
         try {
+            int prefillRows=sequence.prefillRows();
             float[] row=new float[config.dim()];embedding.readRow(token,row);
             float[] hidden=new float[config.hyperDim()];
             for(int branch=0;branch<config.hcCount();branch++) System.arraycopy(row,0,hidden,branch*row.length,row.length);
             for(int i=0;i<layers.length;i++) {
                 var layer=layers[i];
                 if(sequence.attention[i]!=null && sequence.position<sequence.prefillEnd) {
-                    int chunkStart=sequence.position-(sequence.position-sequence.prefillStart)%4096;
-                    sequence.attention[i].setPrefillQueryCount(Math.min(4096,sequence.prefillEnd-chunkStart));
+                    sequence.attention[i].setPrefillQueryCount(prefillRows);
                 }
                 if(layer.ple()!=null) {
-                    float[] added=layer.ple().forward(token,hidden,sequence.ple[i]);
-                    for(int j=0;j<hidden.length;j++) hidden[j]=FloatFormats.roundBf16(hidden[j]+added[j]);
+                    hidden=layer.ple().apply(token,hidden,sequence.ple[i],sequence.position>=sequence.prefillEnd);
                 }
-                var mixed=layer.attentionMix().mix(hidden);
+                var mixed=layer.attentionMix().mix(hidden,prefillRows);
                 float[] attention=layer.delta()!=null ? layer.delta().forward(mixed.output(),sequence.delta[i])
                         : layer.attention().forward(mixed.output(),sequence.attention[i],sequence.position<sequence.prefillEnd,sequence.position<sequence.freshPrefillEnd);
                 hidden=layer.attentionMix().combine(attention,mixed);
-                mixed=layer.mlpMix().mix(hidden);
+                mixed=layer.mlpMix().mix(hidden,prefillRows);
                 hidden=layer.mlpMix().combine(layer.moe().forward(mixed.output()).output(),mixed);
                 if(onLayer!=null) onLayer.accept(i,hidden.clone());
             }
-            float[] output=mixer.mix(hidden).output(),logits=null;
+            float[] output=mixer.mix(hidden,prefillRows).output(),logits=null;
             if(withLogits) {
                 logits=Qwen4CpuLayers.project(lmHead,output);
                 Arrays.fill(logits,tokenizer.tokenCount(),logits.length,Float.NEGATIVE_INFINITY);
@@ -181,6 +201,8 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         for(var sequence:List.copyOf(sequences)) try {sequence.close();} catch(IOException closing) {
             if(failure==null) failure=closing;else failure.addSuppressed(closing);
         }
+        for(var resource:hyperResources) try {resource.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
+        hyperResources.clear();
         try {reader.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         if(failure!=null) throw failure;
     }

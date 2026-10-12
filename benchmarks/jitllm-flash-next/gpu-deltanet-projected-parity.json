@@ -100,7 +100,7 @@
     "gpu_checkpoints": 31,
     "gpu_restores": 25,
     "gpu_resets": 1,
-    "gpu_kernel_ns": 10631765,
+    "gpu_kernel_ns": 11414139,
     "gpu_projections": true
   }
 }

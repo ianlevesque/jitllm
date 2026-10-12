@@ -19,9 +19,10 @@ import uk.ac.manchester.tornado.api.common.TornadoDevice;
 
 /** Bounded, storage-preserving GPU projections for the full host layer pipeline. */
 public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseable {
-    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices) {}
+    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long bf16ResidentBytes,long bf16Executions) {}
     private final TornadoDevice device;
     private final long budget;
+    private final FlashNextBf16MatrixExecutor bf16;
     private final LinkedHashMap<ModelOptMatrix,Entry> cache=new LinkedHashMap<>(16,.75f,true);
     private long resident,uploads,evictions,executions,kernelNanos,graphId;
     private boolean closed;
@@ -30,9 +31,10 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         if(budget<=0) throw new IllegalArgumentException("Positive GPU weight cache budget required");
         this.device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);
         this.budget=budget;
+        bf16=new FlashNextBf16MatrixExecutor(device,Math.min(budget,256L<<20));
     }
     public String deviceName() { return device.getPhysicalDevice().getDeviceName(); }
-    public synchronized Statistics statistics() { return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size()); }
+    public synchronized Statistics statistics() { var extra=bf16.statistics();return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size(),extra.residentBytes(),extra.executions()); }
 
     // PRIVATE mappings let Tornado's array header occupy a private copy of the preceding
     // bytes. No checkpoint bytes are changed, and no full host weight copy is required.
@@ -134,6 +136,11 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         entry.mode.set(0,1);
         run(entry.plain,entry,output);
     }
+    @Override public synchronized void multiplyBf16(ModelOptMatrix matrix,float[] input,float[] output,int prefillRows) throws IOException {
+        if(closed) throw new IOException("GPU projection cache is closed");
+        if(matrix.dtype().equals("BF16")) bf16.multiplyRow(matrix,input,output,prefillRows);
+        else MatrixExecutor.super.multiplyBf16(matrix,input,output,prefillRows);
+    }
     private void run(TornadoExecutionPlan plan,Entry entry,float[] output) throws IOException {
         try {
             long nanos=plan.execute().getProfilerResult().getDeviceKernelTime();
@@ -147,6 +154,8 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         for(var entry:cache.values()) try {entry.close();} catch(Exception closing) {
             if(failure==null) failure=new IOException("Cannot close GPU projection cache",closing);else failure.addSuppressed(closing);
         }
-        cache.clear();resident=0;if(failure!=null) throw failure;
+        cache.clear();resident=0;
+        try {bf16.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
+        if(failure!=null) throw failure;
     }
 }

@@ -57,6 +57,8 @@ public final class FlashNextDeltaNetProbe {
                 } finally {for(var saved:snapshots) saved.close();}
                 var stale=state.snapshot();state.reset();
                 try(var current=state.snapshot()) {
+                    try {state.restore(stale);throw new AssertionError("Checkpoint survived reset");}
+                    catch(IllegalArgumentException expected) {}
                     stale.close();
                     if(executor.statistics().liveSnapshots()!=1) throw new AssertionError("Stale close released a current checkpoint");
                     try {state.restore(stale);throw new AssertionError("Released checkpoint accepted");}
