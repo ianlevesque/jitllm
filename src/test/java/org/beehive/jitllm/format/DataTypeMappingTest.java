@@ -178,7 +178,10 @@ public class DataTypeMappingTest {
     @Test
     public void everyRuntimeTypeHasAFileTypeWhileTheBridgeExists() {
         for (DataType dataType : DataType.values()) {
-            assertSame(dataType, DataTypeMapping.sourceType(DataTypeMapping.asFileType(dataType)));
+            if (dataType == DataType.F8_E4M3) {
+                org.junit.Assert.assertThrows(UnsupportedOperationException.class, () -> DataTypeMapping.asFileType(dataType));
+                assertEquals(7L, TensorDescriptors.layoutOf(dataType).byteSize(7));
+            } else assertSame(dataType, DataTypeMapping.sourceType(DataTypeMapping.asFileType(dataType)));
         }
     }
 

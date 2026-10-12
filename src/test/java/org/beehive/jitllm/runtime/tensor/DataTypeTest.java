@@ -23,6 +23,7 @@ public class DataTypeTest {
                         DataType.F32,
                         DataType.F16,
                         DataType.BF16,
+                        DataType.F8_E4M3,
                         DataType.Q8_0,
                         DataType.Q4_0,
                         DataType.Q4_1,

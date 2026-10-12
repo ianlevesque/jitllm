@@ -181,7 +181,8 @@ public final class OperationSupport {
             case EMBEDDING_LOOKUP -> Set.of(DataType.F16, DataType.Q8_0);
 
                 // Key/value representation, F32 by default and F16 behind the FP16 cache.
-            case KV_APPEND, ATTENTION -> Set.of(DataType.F32, DataType.F16);
+            // Flash-Next QSA appends and gathers physical E4M3 pages on CUDA.
+            case KV_APPEND, ATTENTION -> Set.of(DataType.F32, DataType.F16, DataType.F8_E4M3);
 
                 // Activations, in float or half depending on the kernel variant in use.
             case RMS_NORM,

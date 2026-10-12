@@ -1,0 +1,12 @@
+{
+  "prompt": "2+2=?",
+  "max_tokens": 3,
+  "device": 1,
+  "context_length": 4096,
+  "expected_prompt_tokens": 16,
+  "expected_tokens": [
+    17,
+    478,
+    220
+  ]
+}

@@ -63,15 +63,23 @@ public final class LocalModels {
             }
             throw exhaustion;
         }
-        return new DelegatingModel(
+        var storage = model instanceof org.beehive.jitllm.model.ManagedDeviceModel managed
+                && !options.hasExplicitStorageOptions() ? managed.defaultDeviceStorage() : options.storageOptions();
+        try { return new DelegatingModel(
                 model,
                 modelFile,
                 gpu,
                 options.executionPolicy(),
-                options.storageOptions(),
+                storage,
                 options.thinkingMode(),
                 options.reasoningEffort(),
                 options.maxConcurrentSessions());
+        } catch (RuntimeException | Error failure) {
+            if (model instanceof AutoCloseable resource) {
+                try { resource.close(); } catch (Exception closing) { failure.addSuppressed(closing); }
+            }
+            throw failure;
+        }
     }
 
     /**

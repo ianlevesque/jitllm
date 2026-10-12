@@ -151,10 +151,7 @@ final class DelegatingModel implements TextGenerationModel {
         this.configuration = new ConfigurationView(delegate.configuration());
         // Before any cache or pool is sized: the model is loaded, so the weight representation
         // and family are known, and the storage and policy are the model's defaults.
-        org.beehive.jitllm.backend.tornado.Fp16KeyValueSupport.require(
-                delegate, executionPolicy, storageOptions, gpu);
-        org.beehive.jitllm.backend.tornado.NativeLibrarySupport.require(
-                delegate, executionPolicy, gpu);
+        requireExecutionOptions(delegate, executionPolicy, storageOptions, gpu);
         // One weight representation is all today's Weights can report: it carries a single
         // materialized type for the whole set. Per-tensor descriptors make a genuinely
         // mixed answer possible, and ModelInfo can already express it — see weightTypes().
@@ -178,6 +175,19 @@ final class DelegatingModel implements TextGenerationModel {
                         java.util.Set.of(delegate.weights().dataType()),
                         delegate.configuration().activationType(),
                         capabilitiesOf(delegate.chatFormat()));
+    }
+
+    private static void requireExecutionOptions(Model model, ExecutionPolicy policy,
+            org.beehive.jitllm.runtime.policy.StorageOptions storage, boolean gpu) {
+        if (gpu && model instanceof org.beehive.jitllm.model.ManagedDeviceModel managed) {
+            managed.validateDeviceOptions(policy, storage);
+            return;
+        }
+        if (storage.keyValueRepresentation() == org.beehive.jitllm.runtime.tensor.DataType.F8_E4M3) {
+            throw new UnsupportedOperationException("This model has no FP8 KV cache implementation");
+        }
+        org.beehive.jitllm.backend.tornado.Fp16KeyValueSupport.require(model, policy, storage, gpu);
+        org.beehive.jitllm.backend.tornado.NativeLibrarySupport.require(model, policy, gpu);
     }
 
     /**
@@ -339,7 +349,12 @@ final class DelegatingModel implements TextGenerationModel {
         // Taken from the resolved storage options rather than assumed FP32: the accounting a
         // caller sees should describe the pool that was actually built, and an FP16 pool costs
         // half. It read Float.BYTES unconditionally with a comment admitting the gap.
-        long bytesPerValue = storage.usesFp16KeyValueCache() ? Short.BYTES : Float.BYTES;
+        long bytesPerValue = switch (storage.keyValueRepresentation()) {
+            case F8_E4M3 -> 1;
+            case F16 -> Short.BYTES;
+            case F32 -> Float.BYTES;
+            default -> throw new IllegalArgumentException("Unsupported KV storage " + storage.keyValueRepresentation());
+        };
         return 2L * kvDim * BLOCK_SIZE_TOKENS * config.keyValueLayerCount() * bytesPerValue;
     }
 
@@ -391,10 +406,7 @@ final class DelegatingModel implements TextGenerationModel {
             if (!policy.equals(executionPolicy)) {
                 // A session that overrides the execution mode can select layers the model's own
                 // policy did not, so the cache it would share is checked again before the lease.
-                org.beehive.jitllm.backend.tornado.Fp16KeyValueSupport.require(
-                        delegate, policy, storageOptions, gpu);
-                org.beehive.jitllm.backend.tornado.NativeLibrarySupport.require(
-                        delegate, policy, gpu);
+                requireExecutionOptions(delegate, policy, storageOptions, gpu);
             }
             KvLease lease = sessions.acquire(contextLength);
             try {

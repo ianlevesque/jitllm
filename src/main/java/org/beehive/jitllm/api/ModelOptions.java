@@ -31,6 +31,7 @@ public final class ModelOptions {
     private final int contextLength;
     private final ExecutionPolicy executionPolicy;
     private final StorageOptions storageOptions;
+    private final boolean explicitStorageOptions;
     private final BackendId backend;
     private final DeviceSelector device;
     private final ThinkingMode thinkingMode;
@@ -54,7 +55,12 @@ public final class ModelOptions {
                 builder.storageOptions != null
                         ? builder.storageOptions
                         : StorageOptions.fromSystemProperties();
+        this.explicitStorageOptions = builder.storageOptions != null
+                || System.getProperty(StorageOptions.FP32_PROPERTY) != null
+                || System.getProperty(StorageOptions.LEGACY_FP16_PROPERTY) != null;
     }
+
+    boolean hasExplicitStorageOptions() { return explicitStorageOptions; }
 
     public static Builder builder() {
         return new Builder();

@@ -50,6 +50,7 @@ public final class TensorDescriptors {
      * file is where they are defined, and a second copy would be a second thing to get wrong.
      */
     public static TensorLayout layoutOf(DataType dataType) {
+        if (dataType == DataType.F8_E4M3) return new TensorLayout.Dense(1);
         GGMLType fileType = DataTypeMapping.asFileType(dataType);
         if (!dataType.isQuantized()) {
             return new TensorLayout.Dense(fileType.getTypeSize());

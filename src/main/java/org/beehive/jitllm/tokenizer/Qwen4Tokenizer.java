@@ -73,7 +73,10 @@ public final class Qwen4Tokenizer extends Qwen35Tokenizer {
             throw new IOException("Unsupported byte-level pretokenizer");
         String regex = (String) object(split.get("pattern")).get("Regex");
         return new Qwen4Tokenizer(new Data(Map.of("tokenizer.ggml.token_type",types,"tokenizer.ggml.merges",lines),
-                vocabulary, Map.copyOf(merges), Map.copyOf(specials), Pattern.compile(regex), nfc));
+                // Long.hashCode folds the two token IDs with XOR. Map.copyOf uses
+                // open addressing and becomes quadratic for these colliding pairs;
+                // HashMap retains its collision trees. The local map never escapes.
+                vocabulary, Collections.unmodifiableMap(merges), Map.copyOf(specials), Pattern.compile(regex), nfc));
     }
 
     private static long key(int left,int right) { return ((long)left<<32) | (right & 0xffffffffL); }

@@ -169,6 +169,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
     private Qwen4Moe own(Qwen4Moe resource) {moeResources.add(resource);return resource;}
     private Qwen4CpuLayers.HyperConnection own(Qwen4CpuLayers.HyperConnection resource) {hyperResources.add(resource);return resource;}
     public Qwen4Configuration configuration() { return config; }
+    public synchronized boolean isClosed() { return closed; }
     public Qwen4Tokenizer tokenizer() { return tokenizer; }
     public synchronized Sequence newSequence() { if(closed) throw new IllegalStateException("Engine is closed");var sequence=new Sequence();sequences.add(sequence);return sequence; }
     public PagedTensorReader.Statistics statistics() { return reader.statistics(); }

@@ -25,6 +25,7 @@ final class MemoryPreflight {
         // loadWeights = false, useTornadovm = false: the configuration comes from metadata and no
         // tensor is materialized, on the host or the device. That is what makes this a *pre*flight.
         var model = ModelLoader.loadModel(modelFile, contextLength, false, false);
+        try (AutoCloseable resource = model instanceof AutoCloseable owned ? owned : () -> {}) {
         Configuration config = model.configuration();
         // Descriptors only. The loader owns the format types (Rule 4 permits it there and forbids
         // them here), and what comes back is a neutral footprint.
@@ -55,6 +56,9 @@ final class MemoryPreflight {
                                                 options.executionPolicy())),
                         org.beehive.jitllm.runtime.memory.KeyValueReservation.BLOCK_SIZE_TOKENS,
                         options.storageOptions().usesFp16KeyValueCache()));
+        } catch (IOException | RuntimeException | Error failure) { throw failure; }
+        catch (Exception failure) { throw new IOException("Cannot close preflight model", failure); }
+
     }
 
     /**

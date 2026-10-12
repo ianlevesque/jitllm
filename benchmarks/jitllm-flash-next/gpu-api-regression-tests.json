@@ -1,0 +1,37 @@
+{
+  "jitllm": {
+    "tests_run": 806,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "launcher": {
+    "tests_run": 112,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 88,
+    "fork_and_overlay_exact_match": true
+  },
+  "tokenizer": {
+    "cases": 247,
+    "all_token_ids_and_decodes_exact": true
+  },
+  "cuda_api": {
+    "concurrent_callers": 3,
+    "serialized_device_execution": true,
+    "fresh_reference_cached_tokens": 0,
+    "cases": 4,
+    "all_outputs_exact": true,
+    "reset_replay_exact": true,
+    "native_gemms": 69120,
+    "native_contexts_after_close": 0,
+    "native_plans_after_close": 0,
+    "expert_registrations_after_close": 0,
+    "checkpoint_descriptors_after_close": 0,
+    "peak_device_used_mib": 29065,
+    "minimum_free_mib": 3044
+  },
+  "scope": "Three API callers serialized on shared device workspaces, 4096-token capacity and one short prompt/reset. Full-context concurrent capacity, batching, MTP, vision and broader chat replay remain unqualified."
+}

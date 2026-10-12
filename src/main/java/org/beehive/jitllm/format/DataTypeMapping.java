@@ -128,6 +128,7 @@ public final class DataTypeMapping {
             case F32 -> GGMLType.F32;
             case F16 -> GGMLType.F16;
             case BF16 -> GGMLType.BF16;
+            case F8_E4M3 -> throw new UnsupportedOperationException("FP8 E4M3 has no supported GGUF file mapping");
             case Q8_0 -> GGMLType.Q8_0;
             case Q4_0 -> GGMLType.Q4_0;
             case Q4_1 -> GGMLType.Q4_1;

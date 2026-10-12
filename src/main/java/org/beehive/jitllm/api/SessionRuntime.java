@@ -35,6 +35,10 @@ sealed interface SessionRuntime permits LegacySessionRuntime, LoweredSessionRunt
     /** The plan this session executes with, built or borrowed on first use. */
     TornadoVMMasterPlan plan();
 
+    default org.beehive.jitllm.runtime.backend.ExecutionInfo prepare() {
+        return plan().executionInfo();
+    }
+
     /**
      * Runs one GPU turn, with whichever generation cursor this runtime owns.
      *

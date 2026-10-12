@@ -8,7 +8,7 @@ import org.beehive.jitllm.runtime.tensor.DataType;
  * How a model's key/value storage is shaped: the choices that are <b>not</b> execution policy.
  *
  * @param keyValueRepresentation how key/value entries are stored: {@link DataType#F32} or {@link
- *     DataType#F16}
+ *     DataType#F16}, or physical E4M3 pages ({@link DataType#F8_E4M3})
  * @param sharedKeyValuePool whether standalone sessions address one shared pool rather than each
  *     allocating their own cache. Applies to standalone sessions only: engine-batched execution
  *     <i>is</i> the shared pool, so there is no engine setting to make
@@ -18,9 +18,10 @@ public record StorageOptions(DataType keyValueRepresentation, boolean sharedKeyV
 
     public StorageOptions {
         Objects.requireNonNull(keyValueRepresentation, "keyValueRepresentation");
-        if (keyValueRepresentation != DataType.F32 && keyValueRepresentation != DataType.F16) {
+        if (keyValueRepresentation != DataType.F32 && keyValueRepresentation != DataType.F16
+                && keyValueRepresentation != DataType.F8_E4M3) {
             throw new IllegalArgumentException(
-                    "key/value storage is F32 or F16, not " + keyValueRepresentation);
+                    "key/value storage is F32, F16 or F8_E4M3, not " + keyValueRepresentation);
         }
     }
 
@@ -44,6 +45,9 @@ public record StorageOptions(DataType keyValueRepresentation, boolean sharedKeyV
     public static StorageOptions fp32() {
         return new StorageOptions(DataType.F32, false);
     }
+
+    /** Physical E4M3 pages; only models with an FP8 cache writer and reader may use this. */
+    public static StorageOptions fp8() { return new StorageOptions(DataType.F8_E4M3, false); }
 
     /**
      * The defaults this build runs with, from the {@code llama.*} system properties.

@@ -22,15 +22,15 @@ public class Qwen4ModelProviderTest {
         assertFalse(provider.supports(ModelSource.ofMetadata(Path.of("other"), Map.of("model_type", "qwen3_5"))));
         assertFalse(provider.supports(ModelSource.ofMetadata(Path.of("other"), Map.of("model_type", "qwen4_exp"))));
     }
-    @Test public void gpuLoadIsRefusedBeforeAnyTensorRead() throws Exception {
+    @Test public void unsupportedAcceleratorIsRefusedBeforeAnyTensorRead() throws Exception {
         Path directory = Files.createTempDirectory("qwen4-provider-");
         try {
             Files.writeString(directory.resolve("config.json"), "{\"model_type\":\"qwen4_exp_text\"}");
             Files.writeString(directory.resolve("model.safetensors"), "unread payload");
             var source = ModelSource.ofFile(directory);
             var failure = assertThrows(UnsupportedOperationException.class,
-                    () -> new Qwen4ModelProvider().load(source, BackendId.CUDA, -1));
-            assertTrue(failure.getMessage().contains("full GPU execution"));
+                    () -> new Qwen4ModelProvider().load(source, BackendId.METAL, -1));
+            assertTrue(failure.getMessage().contains("CPU or CUDA"));
         } finally {
             Files.deleteIfExists(directory.resolve("config.json"));
             Files.deleteIfExists(directory.resolve("model.safetensors"));

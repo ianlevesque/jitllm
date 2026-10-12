@@ -3,10 +3,10 @@
 The goal is native JITLLM inference and serving of
 `nvidia/Qwen3.8-Flash-Next-NVFP4`, with bounded NVMe PLE/Engram staging and the
 features of the original launcher's `qwen-flash-next-staged` profile. The full 48-layer text pipeline now executes on the host and with native GPU
-weight projections, DeltaNet state updates, HC/PLE arithmetic and QSA. The recorded 16-token ChatML
+weight projections, DeltaNet state updates, HC/PLE arithmetic, QSA and MoE. The recorded 16-token ChatML
 comparison now matches three greedy staged-reference tokens exactly; broader
 full-model correctness remains to be qualified. The normal JITLLM loader/API can load the
-checkpoint on CPU; production GPU serving is still under implementation.
+checkpoint on CPU and CUDA through model-owned plans; production GPU serving is still under implementation.
 
 This branch is based on upstream JITLLM
 `67a7b8b28e19f3212bfbfc251de7ff9bb35bd863`. The implementation and service
@@ -224,7 +224,7 @@ releases the 3,580,597,824-byte full-context reservation. Reached QSA pages
 account for 77,071,536 bytes, separate from shared sparse workspace buffers.
 The positional-file reader remains bounded to 1 MiB. This short case does not
 qualify long context, concurrent inference, speculative decoding or serving.
-The normal GPU model provider still requires integration.
+The normal CUDA model provider now uses these executors through model-owned plans; layer-to-layer plan fusion remains required.
 
 `full-gpu-qsa-bf-prefill-conformance.json` also matches the fresh staged tokens
 for the 17-token prefill case, with 228 QSA forwards and 3,298 native BF16 HC
@@ -264,7 +264,7 @@ activation-byte mismatches that identified the encode rounding problem.
 Set `gpu_nvfp4: true` with `gpu_projections: true` to select this native path.
 The main `gpu_cache_bytes` budget is split equally between packed native plans
 (including their workspaces) and dense/scalar projections; the separate BF16
-GEMM cache remains capped at 256 MiB. The normal GPU model provider, cross-layer device
+GEMM cache remains capped at 256 MiB. The normal CUDA model provider is integrated; cross-layer device
 plan fusion, efficient batched full-model prefill, FP8 draft tensor cores,
 long-context/concurrent serving, MTP and multimodal/chat replay remain required.
 `full-gpu-nvfp4-rollback-conformance.json` checks the same 16-token ChatML
@@ -313,8 +313,69 @@ The main cache budget is split equally between dense/scalar projections and
 MoE resources, including shared/router weights, intermediate buffers, native
 workspace and packed expert residency. The standalone native NVFP4 projection
 path remains available. Full layer-to-layer device plan fusion, efficient
-batched prefill, the GPU model/API provider, MTP/FP8 draft math, native vision
+batched prefill, MTP/FP8 draft math, native vision
 and exact chat replay, full context/concurrency and deployment are still needed.
+
+## Normal CUDA model/API integration
+
+`LocalModels.load(checkpoint, ModelOptions.builder().backend(BackendId.CUDA).build())`
+now loads the native Flash-Next executors. A session owns its DeltaNet, PLE and
+QSA state; the model owns projection/HC/MoE workspaces and the bounded packed
+expert cache. Simultaneous session callers serialize device execution on those
+shared workspaces. This is admission and isolation, not batched GPU scheduling.
+`prepare()` reports the actual CUDA/FP8 path without advancing the sequence.
+Explicit unsupported storage or execution-policy requests fail and release the
+loaded model. With no explicit storage override, Flash-Next selects physical
+FP8 E4M3 KV pages. `StorageOptions.fp8()` requests that format explicitly; legacy
+models reject it when they have no FP8 writer/reader. A pending output token is
+ingested on the next turn. Initial prompts no longer lose one output token to a
+misidentified header seed.
+
+CUDA requires the CUDA 13 native libraries and the same pinned TornadoVM SDK.
+The provider uses the process-resolved default device unless `jitllm.qwen4.device`
+selects a CUDA backend ordinal. The checkpoint runner sets this property without
+reordering TornadoVM's device list. Device caches use
+`jitllm.qwen4.gpuCacheBytes` (default half of device VRAM minus 4 GiB,
+capped at 16 GiB: about 12 GiB on this 32 GiB RTX 5090). `gpuProjectionBytes` reserves
+up to 8 GiB of that for dense projections, with the remainder assigned to MoE;
+it may be explicitly overridden. The other limits are `gpuStateBytes` (4 GiB), `gpuLayerBytes` (64 MiB), `gpuQsaBytes`
+(16 GiB of full-context logical reservation; pages materialize as reached),
+`checkpointCapacity` (8), and `pageCacheBytes` (1 MiB), all under the
+`jitllm.qwen4.` property prefix. The BF16 GEMM cache is separately capped at
+256 MiB. These independent limits are not a complete physical-memory prediction.
+Full native context remains 262,144; the short API qualification uses a 4,096-token
+capacity. Long-context concurrent physical memory and scheduling remain unqualified.
+
+The tokenizer merge map stays private behind an unmodifiable `HashMap` view.
+The old `Map.copyOf` open-addressing construction spent over a minute handling
+colliding long token-pair keys during an observed API load. Tokenization remains
+checked against the checkpoint's Hugging Face tokenizer. Preflight and rejected
+API loads now release any opened model resources.
+
+Run the normal API probe with:
+
+```bash
+python3 scripts/flash-next/jitllm_runtime.py gpu-api-probe /path/to/Qwen3.8-Flash-Next-NVFP4 scripts/flash-next/examples/short-chatml-gpu-api.json
+```
+
+This launches three simultaneous API callers, checks token events/positions,
+refuses a fourth session and model close with live sessions, then resets and
+replays one session. It also checks explicit FP16 refusal, native execution and
+checkpoint/native resource release. `gpu-api-conformance.json` records three callers and a reset/replay case, all
+exact against a fresh uncached staged `[17, 478, 220]` result. They ingest the
+16-token prompt and emit three tokens at API position 19, run 69,120 native
+expert GEMMs, and release checkpoint file descriptors, native contexts,
+descriptors and expert registrations to zero. The run took about 264 seconds.
+One-second GPU samples peaked at 29,065 MiB used, including the 4,395 MiB desktop
+baseline, and retained at least 3,044 MiB free. GPU usage returned to baseline
+after process exit. The earlier 16 GiB weight-cache setting failed on the third
+call and is preserved in `gpu-api-memory-failure.json`; the adaptive default
+keeps the same three callers live while paging more experts. This measures one
+short prompt with 4,096-token capacity, not full-context concurrent workloads.
+`gpu-api-regression-tests.json` records 806 Java tests (zero failures/errors,
+three skipped), 112 launcher tests, 247 exact tokenizer cases and 88 matching
+source files. Layer-to-layer activation fusion, efficient batched prefill, MTP,
+vision and complete chat replay remain required.
 
 ## Build and reproduce checks
 
@@ -442,8 +503,8 @@ and an optional `cache_bytes` budget.
    the native MoE numeric checks, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
 2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
-   including grouped native NVFP4 projections and FP8 draft tensor cores. Connect that plan
-   to the normal model provider; it currently refuses full GPU loads explicitly.
+   including grouped native NVFP4 projections and FP8 draft tensor cores. The normal CUDA
+   model provider now dispatches through its owned plans; production serving remains to be qualified.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index
    reuse, and rejection/accepted-prefix rollback for every request state.
 4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
@@ -455,4 +516,4 @@ and an optional `cache_bytes` budget.
    demonstrated. Verify real text, long-context retrieval, NVMe page activity,
    bounded memory, MTP, images and tools against current runtime evidence.
 
-This branch is experimental. No native production route has been published.
+The original goal remains active. No native production route has been published.

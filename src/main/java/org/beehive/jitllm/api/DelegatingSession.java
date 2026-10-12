@@ -149,7 +149,7 @@ final class DelegatingSession implements GenerationSession {
     public org.beehive.jitllm.runtime.backend.ExecutionInfo prepare() {
         ensureUsable();
         if (gpu) {
-            return runtime.plan().executionInfo();
+            return runtime.prepare();
         }
         return new org.beehive.jitllm.runtime.backend.ExecutionInfo(
                 "CPU",

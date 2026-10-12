@@ -76,6 +76,9 @@ final class LegacySessionRuntime implements SessionRuntime {
 
     @Override
     public TornadoVMMasterPlan plan() {
+        if (model instanceof org.beehive.jitllm.model.ManagedDeviceModel) {
+            throw new UnsupportedOperationException("This model owns its device plans; use prepare() or generate()");
+        }
         if (plan == null) {
             plan =
                     TornadoVMMasterPlan.initializeTornadoVMPlan(
@@ -89,6 +92,11 @@ final class LegacySessionRuntime implements SessionRuntime {
         return plan != null;
     }
 
+    @Override public org.beehive.jitllm.runtime.backend.ExecutionInfo prepare() {
+        return model instanceof org.beehive.jitllm.model.ManagedDeviceModel managed
+                ? managed.prepareDevice(state) : SessionRuntime.super.prepare();
+    }
+
     /** Straight through the model, exactly as before. */
     @Override
     public java.util.List<Integer> generateOnGpu(
@@ -99,6 +107,9 @@ final class LegacySessionRuntime implements SessionRuntime {
             int budget,
             org.beehive.jitllm.inference.sampler.Sampler sampler,
             java.util.function.IntConsumer onToken) {
+        if (model instanceof org.beehive.jitllm.model.ManagedDeviceModel managed) {
+            return managed.generateOnDevice(state, startPosition, promptTokens, stopTokens, budget, sampler, onToken);
+        }
         return model.generateTokensGPU(
                 state,
                 startPosition,

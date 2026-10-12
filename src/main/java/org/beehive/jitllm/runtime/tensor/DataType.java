@@ -52,6 +52,9 @@ public enum DataType {
      */
     BF16(false),
 
+    /** E4M3 finite 8-bit floating point, including Flash-Next's physical KV pages. */
+    F8_E4M3(false),
+
     /** 8-bit block quantization: signed 8-bit values with a per-block scale. */
     Q8_0(true),
 

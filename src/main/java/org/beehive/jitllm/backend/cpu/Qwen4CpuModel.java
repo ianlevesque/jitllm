@@ -19,7 +19,7 @@ import org.beehive.jitllm.runtime.tensor.DataType;
 import org.beehive.jitllm.tokenizer.Qwen4Tokenizer;
 
 /** Normal JITLLM model adapter for the native host forward pass. */
-public final class Qwen4CpuModel extends AbstractModel implements AutoCloseable {
+public class Qwen4CpuModel extends AbstractModel implements AutoCloseable {
     static final ArchitectureId ARCHITECTURE = ArchitectureId.of("qwen4_exp");
     private final Qwen4CpuEngine engine;
 
@@ -44,7 +44,9 @@ public final class Qwen4CpuModel extends AbstractModel implements AutoCloseable 
     @Override public State createNewState(int batchsize) {
         return State.withPrefillBatchSize(1, () -> {
             var state = new Qwen4State(configuration(), batchsize, engine.newSequence());
-            state.latestToken = chatFormat().getBeginOfText();
+            // This loop ingests every prompt token; there is no separate BOS seed.
+            // A matching header seed would make the API under-count the prompt by one.
+            state.latestToken = -1;
             return state;
         });
     }

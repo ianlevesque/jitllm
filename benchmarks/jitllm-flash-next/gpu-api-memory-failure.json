@@ -1,0 +1,23 @@
+{
+  "passed": false,
+  "configuration": {
+    "cuda_backend_ordinal": 1,
+    "weight_cache_bytes": 17179869184,
+    "projection_bytes": 8589934592,
+    "moe_budget_bytes": 8589934592,
+    "context_length": 4096,
+    "concurrent_callers": 3,
+    "checkpoint_capacity": 8,
+    "allocator_budget_bytes": 25769803776
+  },
+  "completed_calls": 2,
+  "completed_output_ids": [
+    17,
+    478,
+    220
+  ],
+  "failure": "TornadoOutOfMemoryException while allocating a 24.9 MiB DeltaNet checkpoint bank (cuMemAlloc status=2)",
+  "gpu_peak_used_mib": 31957,
+  "includes_desktop_and_runtime_allocations": true,
+  "resolution": "The default weight cache now reserves half of device global memory minus 4 GiB, capped at 16 GiB; dense projections retain up to 8 GiB and MoE uses the remainder. The same three-call/reset workload then passed."
+}

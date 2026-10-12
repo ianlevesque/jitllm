@@ -19,8 +19,9 @@ public final class Qwen4ModelProvider implements ModelProvider {
     @Override public ArchitectureId architecture(ModelSource source) { return Qwen4CpuModel.ARCHITECTURE; }
     @Override public Model load(ModelSource source, BackendId backend, int contextLength) throws IOException {
         if (!supports(source) || !source.isSafetensors()) throw new IOException("Expected a Qwen4-Exp safetensors directory: " + source.path());
-        if (!BackendId.CPU.equals(backend)) throw new UnsupportedOperationException("Qwen4-Exp full GPU execution is not implemented yet; select CPU for the native reference path");
         long budget = Long.getLong("jitllm.qwen4.pageCacheBytes", 1048576L);
+        if (BackendId.CUDA.equals(backend)) return org.beehive.jitllm.backend.tornado.Qwen4GpuModel.load(source.path(), contextLength, budget);
+        if (!BackendId.CPU.equals(backend)) throw new UnsupportedOperationException("Flash-Next supports CPU or CUDA, not " + backend);
         return new Qwen4CpuModel(new Qwen4CpuEngine(source.path(), contextLength, budget, null));
     }
 }
