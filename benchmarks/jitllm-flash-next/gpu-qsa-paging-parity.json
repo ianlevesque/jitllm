@@ -1,0 +1,89 @@
+{
+  "configured_context": 262144,
+  "elapsed_seconds": 16.370401518,
+  "gpu": {
+    "forwards": 4140,
+    "reserved_bytes_after_close": 0,
+    "kernel_ns": 13010366263,
+    "restores": 8,
+    "kv_host_download_bytes": 0
+  },
+  "materialized_pages": 3,
+  "executed_tokens": 4099,
+  "reserved_bytes": 9639656,
+  "cases": [
+    {
+      "selected_tokens": 1,
+      "token": 0,
+      "max_absolute_error": 0,
+      "fresh_prefill": true,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 4,
+      "token": 3,
+      "max_absolute_error": 0,
+      "fresh_prefill": true,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 2048,
+      "token": 2047,
+      "max_absolute_error": 0,
+      "fresh_prefill": true,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 2049,
+      "token": 2048,
+      "max_absolute_error": 0,
+      "fresh_prefill": true,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 2048,
+      "token": 2051,
+      "max_absolute_error": 0,
+      "fresh_prefill": true,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 2048,
+      "token": 4095,
+      "max_absolute_error": 0,
+      "fresh_prefill": true,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 2049,
+      "token": 4096,
+      "max_absolute_error": 0,
+      "fresh_prefill": false,
+      "rollback_exact": true
+    },
+    {
+      "selected_tokens": 2051,
+      "token": 4098,
+      "max_absolute_error": 0,
+      "fresh_prefill": false,
+      "rollback_exact": true
+    }
+  ],
+  "page_tokens": 2048,
+  "passed": true,
+  "materialized_page_bytes": 471342,
+  "scope": "GPU subsystem semantics with reduced head widths (4 query heads, 2 KV heads, dimension 8; 2 index heads, dimension 4). Execute 4099 tokens within a reserved 262144-token context. This does not prove full-model long-context inference.",
+  "lifecycle_checks": {
+    "allocation_budget_refused_without_reservation": true,
+    "checkpoint_pool_bounded": true,
+    "foreign_checkpoint_refused": true,
+    "released_checkpoint_refused": true,
+    "stale_epoch_refused": true,
+    "future_prefix_refused_after_rollback": true,
+    "independent_sequences": true,
+    "context_overflow_refused": true,
+    "reset_exact": true,
+    "closed_session_refused": true
+  },
+  "command": "python3 scripts/flash-next/jitllm_runtime.py qsa-paging-probe --device 1"
+}

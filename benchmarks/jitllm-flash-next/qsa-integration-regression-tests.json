@@ -1,0 +1,61 @@
+{
+  "jitllm": {
+    "tests_run": 803,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "launcher": {
+    "tests_run": 112,
+    "passed": true
+  },
+  "portable_checkpoint_fixtures": {
+    "tests_run": 14,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 63,
+    "fork_and_overlay_exact_match": true
+  },
+  "qsa_paging": {
+    "configured_context": 262144,
+    "executed_tokens": 4099,
+    "materialized_pages": 3,
+    "boundary_cases": 8,
+    "maximum_absolute_error": 0,
+    "all_selections_exact": true,
+    "rollback_and_reset_exact": true,
+    "kv_host_download_bytes": 0,
+    "reservations_after_close": 0,
+    "passed": true,
+    "scope": "Reduced head widths; subsystem page transitions and top-512 merge semantics."
+  },
+  "full_model_cases": [
+    {
+      "prompt_tokens": 16,
+      "injected_failure_layer": 20,
+      "qsa_restores": 12,
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "reference_cached_tokens": 0,
+      "passed": true
+    },
+    {
+      "prompt_tokens": 17,
+      "qsa_forwards": 228,
+      "bf16_gemm_executions": 3298,
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "reference_cached_tokens": 0,
+      "passed": true
+    }
+  ],
+  "scope": "Two short full-model cases plus GPU page-boundary semantics. Does not qualify full-context inference, concurrency, MTP, multimodal/chat replay or serving. Strict MoE numeric gate remains unresolved."
+}

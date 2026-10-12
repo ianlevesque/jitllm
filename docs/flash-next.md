@@ -3,7 +3,7 @@
 The goal is native JITLLM inference and serving of
 `nvidia/Qwen3.8-Flash-Next-NVFP4`, with bounded NVMe PLE/Engram staging and the
 features of the original launcher's `qwen-flash-next-staged` profile. The full 48-layer text pipeline now executes on the host and with native GPU
-weight projections, DeltaNet state updates and HC/PLE arithmetic. The recorded 16-token ChatML
+weight projections, DeltaNet state updates, HC/PLE arithmetic and QSA. The recorded 16-token ChatML
 comparison now matches three greedy staged-reference tokens exactly; broader
 full-model correctness remains to be qualified. The normal JITLLM loader/API can load the
 checkpoint on CPU; production GPU serving is still under implementation.
@@ -205,10 +205,34 @@ Both pass the existing rtol 0.016 / atol 0.004, with a maximum observed
 absolute difference of 0.0078125, matching sparse selection sets, exact
 rollback/reset, positive CUDA kernel timings and zero tracked reservation
 after close. The fresh reference uses SGLang's CUDA sparse GQA kernel.
-These checks cover a single page; page transitions, long-context selection,
-full-model GPU QSA, concurrent inference and serving remain unqualified.
-The engine accepts an optional `QsaExecutor`; the generation CLI and normal
-GPU model provider still require integration.
+These layer checks cover a single page. `gpu-qsa-paging-parity.json` uses
+reduced head widths to execute 4,099 tokens through three 2,048-token pages
+within a reserved 262,144-token context. Its eight boundary cases match the
+host oracle exactly, including merging more than 512 compressed blocks,
+unfinished tails and the fresh-to-FP8 transition at token 4,096. It checks
+snapshot ownership, disposed/stale/future checkpoints, checkpoint and buffer
+budgets, independent sequences, context overflow, exact reset and closed-state
+refusal. Only three pages materialize; all tracked reservations are released.
+This subsystem check does not prove full-model long-context inference.
+
+`full-gpu-qsa-rollback-conformance.json` enables CUDA QSA in the full 48-layer
+runner alongside GPU projections, DeltaNet and HC/PLE. After an injected
+layer-20 failure, all 12 QSA states restore and the same 16-token ChatML case
+emits `[17, 478, 220]` exactly like a fresh uncached staged request. It executes
+221 QSA forwards with no KV downloads or live checkpoints, and sequence close
+releases the 3,580,597,824-byte full-context reservation. Reached QSA pages
+account for 77,071,536 bytes, separate from shared sparse workspace buffers.
+The positional-file reader remains bounded to 1 MiB. This short case does not
+qualify long context, concurrent inference, speculative decoding or serving.
+The normal GPU model provider still requires integration.
+
+`full-gpu-qsa-bf-prefill-conformance.json` also matches the fresh staged tokens
+for the 17-token prefill case, with 228 QSA forwards and 3,298 native BF16 HC
+GEMMs. It releases QSA, recurrent and PLE state at sequence/engine close.
+The two cases take about 229 and 261 seconds in the sequential diagnostic
+runner. They establish these short cases only; efficient batched prefill,
+plan fusion, broader text correctness and production GPU serving remain.
+
 
 ## Build and reproduce checks
 
@@ -297,6 +321,7 @@ python3 scripts/flash-next/jitllm_runtime.py recurrent-probe MODEL_DIR RECURRENT
 python3 scripts/flash-next/jitllm_runtime.py hc-ple-probe MODEL_DIR HC_PLE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py bf16-batch-probe MODEL_DIR BF16_BATCH_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-probe MODEL_DIR QSA_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py qsa-paging-probe --device 1
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-recurrence.json
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml-gpu-rollback.json
@@ -319,7 +344,10 @@ on the host unless `gpu_recurrence: true` selects CUDA DeltaNet. Its
 defaults to 4 GiB across all live recurrent sessions and checkpoint banks.
 Setting `gpu_hc_ple: true` also selects CUDA HC and PLE arithmetic.
 Its `gpu_layer_bytes` budget defaults to 64 MiB for model HC buffers and
-request PLE buffers/checkpoints. QSA and MoE nonlinear work remains on the host.
+request PLE buffers/checkpoints. Setting `gpu_qsa: true` selects CUDA sparse
+attention with physical FP8 KV pages. Its `gpu_qsa_bytes` reservation budget
+defaults to 4 GiB across all live QSA sessions; snapshots use the shared
+`checkpoint_capacity`. MoE nonlinear work remains on the host.
 This is an experimental diagnostic path, not the full GPU model
 provider. `cache-probe` takes a `matrices` list of checkpoint projection prefixes
 and an optional `cache_bytes` budget.
@@ -329,7 +357,7 @@ and an optional `cache_bytes` budget.
 1. Broaden text conformance beyond the successful short ChatML case. Resolve
    the strict MoE numeric differences, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
-2. Integrate and qualify GPU QSA, implement GPU MoE, and fuse the native layer plans,
+2. Complete GPU QSA provider/long-context qualification, implement GPU MoE, and fuse the native layer plans,
    including efficient packed NVFP4 tensor-core projections. Connect that plan
    to the normal model provider; it currently refuses full GPU loads explicitly.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index
