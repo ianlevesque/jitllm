@@ -55,8 +55,9 @@ public final class Qwen4Moe {
         for(int i=0;i<gate.length;i++) activated[i]=bf((float)(gate[i]/(1+Math.exp(-gate[i])))*up[i]);
         return activated;
     }
-    private static float[] projectPacked(ModelOptMatrix matrix,Nvfp4Activation.Packed input) throws IOException {
-        float[] output=new float[matrix.rows()];matrix.multiplyNvfp4(input,output);
+    private static float[] projectPacked(ModelOptMatrix matrix,float[] input,float scale,Nvfp4Activation.Packed packed) throws IOException {
+        float[] output=new float[matrix.rows()];
+        if(packed!=null) matrix.multiplyNvfp4(packed,output);else matrix.multiplyNvfp4Values(input,scale,output);
         for(int i=0;i<output.length;i++) output[i]=bf(output[i]);
         return output;
     }
@@ -64,16 +65,16 @@ public final class Qwen4Moe {
         if(input.length!=config.dim()) throw new IllegalArgumentException("Wrong MoE input width");
         float[] logits=Qwen4CpuLayers.project(router,input);
         Routing routing=route(logits,config.expertsPerToken(),config.normalizeTopK());
-        var quantizedInput=Nvfp4Activation.quantize(input,inputScale);
+        var quantizedInput=router.quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(input,inputScale);
         float[] accumulated=new float[config.dim()];
         for(int selected=0;selected<routing.experts().length;selected++) {
             int expert=routing.experts()[selected];
-            float[] gate=projectPacked(gates[expert],quantizedInput),up=projectPacked(ups[expert],quantizedInput);
+            float[] gate=projectPacked(gates[expert],input,inputScale,quantizedInput),up=projectPacked(ups[expert],input,inputScale,quantizedInput);
             float[] activated=swiglu(gate,up);
-            var quantized=Nvfp4Activation.quantize(activated,intermediateScale);
             // CUTLASS UnfusedGemmOutputType is its BF16 backbone type;
             // routing finalization accumulates those rounded FC2 values in FP32.
-            float[] output=projectPacked(downs[expert],quantized);
+            var quantized=downs[expert].quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(activated,intermediateScale);
+            float[] output=projectPacked(downs[expert],activated,intermediateScale,quantized);
             for(int i=0;i<accumulated.length;i++) accumulated[i]=Math.fma(routing.weights()[selected],output[i],accumulated[i]);
         }
         float[] shared=Qwen4CpuLayers.project(sharedDown,swiglu(Qwen4CpuLayers.project(sharedGate,input),Qwen4CpuLayers.project(sharedUp,input)));

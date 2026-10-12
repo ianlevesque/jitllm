@@ -163,16 +163,19 @@ public final class FlashNextLayerProbe {
         }
     }
     private static void moe(Path model,Qwen4Configuration config,Map<String,Object> request) throws Exception {
+        System.out.println(Json.write(moeResult(model,config,request,null)));
+    }
+    public static Map<String,Object> moeResult(Path model,Qwen4Configuration config,Map<String,Object> request,MatrixExecutor matrices) throws Exception {
         String prefix="model.language_model.layers.0.mlp";
         SafeTensorIndex index=SafeTensorIndex.open(model,name->name.startsWith(prefix+"."));
         try(PagedTensorReader reader=new PagedTensorReader(1048576,4096)) {
-            var layer=new Qwen4Moe(config,index,reader,prefix);
+            var layer=new Qwen4Moe(config,index,reader,prefix,matrices);
             List<Object> outputs=new ArrayList<>();
             for(Object value:(List<?>)request.get("inputs")) {
                 var result=layer.forward(values((List<?>)value));
                 outputs.add(Map.of("output",floats(result.output()),"experts",Arrays.stream(result.routing().experts()).boxed().toList(),"weights",floats(result.routing().weights())));
             }
-            System.out.println(Json.write(Map.of("outputs",outputs,"input_scale",(double)layer.inputScale(),"intermediate_scale",(double)layer.intermediateScale(),"cache_resident_bytes",reader.statistics().residentBytes())));
+            return new LinkedHashMap<>(Map.of("outputs",outputs,"input_scale",(double)layer.inputScale(),"intermediate_scale",(double)layer.intermediateScale(),"cache_resident_bytes",reader.statistics().residentBytes()));
         }
     }
     private static void hybrid0(Path model,Qwen4Configuration config,Map<String,Object> request) throws Exception {

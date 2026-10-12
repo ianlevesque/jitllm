@@ -1,0 +1,103 @@
+{
+  "input_tokens": [
+    248045,
+    846,
+    198,
+    17,
+    10,
+    17,
+    19279,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "generated_tokens": [
+    17,
+    478,
+    220
+  ],
+  "text": "2 + ",
+  "elapsed_seconds": 403.29023352,
+  "cache_resident_bytes": 1048576,
+  "trace": [],
+  "paged_reader": {
+    "misses": 1918,
+    "file_bytes_read": 7856128,
+    "hits": 147439,
+    "resident_bytes": 1048576,
+    "budget_bytes": 1048576
+  },
+  "rollback_probe": {
+    "transaction_checkpoints_released": true,
+    "position_restored": true,
+    "injected_layer": 20
+  },
+  "execution": "GPU weight projections and DeltaNet and HC/PLE and QSA; MoE nonlinear work remains on the host",
+  "device": "NVIDIA GeForce RTX 5090",
+  "gpu_cache_bytes": 17167433672,
+  "gpu_uploads": 15777,
+  "gpu_evictions": 11723,
+  "gpu_executions": 40787,
+  "gpu_kernel_ns": 16006933720,
+  "bf16_gemm_cache_bytes": 0,
+  "bf16_gemm_executions": 0,
+  "nvfp4_gemm_cache_bytes": 8588708928,
+  "nvfp4_gemm_executions": 26550,
+  "gpu_recurrence": {
+    "kernel_ns": 169448184,
+    "restores": 36,
+    "state_host_download_bytes": 0,
+    "forwards": 664,
+    "live_snapshots": 0,
+    "sessions": 36,
+    "resident_bytes": 1071175968,
+    "checkpoints": 684
+  },
+  "gpu_hc_ple": {
+    "resident_bytes": 33846760,
+    "hyper_connections": 97,
+    "ple_sessions": 1,
+    "live_snapshots": 0,
+    "hyper_mixes": 1788,
+    "hyper_combines": 1770,
+    "ple_forwards": 19,
+    "checkpoints": 19,
+    "restores": 1,
+    "kernel_ns": 697147496,
+    "state_host_download_bytes": 0
+  },
+  "gpu_qsa": {
+    "reserved_bytes": 3580597824,
+    "materialized_page_bytes": 77071536,
+    "sessions": 12,
+    "pages": 12,
+    "live_snapshots": 0,
+    "forwards": 221,
+    "restores": 12,
+    "kernel_ns": 1420787465,
+    "kv_host_download_bytes": 0,
+    "index_host_download_bytes": 1813084
+  },
+  "gpu_qsa_after_sequence_close_bytes": 0,
+  "gpu_recurrence_after_sequence_close_bytes": 0,
+  "gpu_ple_sessions_after_sequence_close": 0,
+  "gpu_layer_bytes_after_engine_close": 0,
+  "gpu_nvfp4_native_contexts_after_close": 0,
+  "gpu_nvfp4_native_plans_after_close": 0,
+  "gpu_nvfp4_native_calls": 26550,
+  "passed": true,
+  "scope": "One 16-token ChatML failure/retry case with native NVFP4 GEMM/encoding and GPU projections/DeltaNet/HC/PLE/QSA. Routing, gates and MoE finalization remain on the host.",
+  "reference_tokens": [
+    17,
+    478,
+    220
+  ],
+  "reference_cached_tokens": 0,
+  "reference_prompt_tokens": 16
+}

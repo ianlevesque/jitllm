@@ -19,22 +19,34 @@ import uk.ac.manchester.tornado.api.common.TornadoDevice;
 
 /** Bounded, storage-preserving GPU projections for the full host layer pipeline. */
 public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseable {
-    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long bf16ResidentBytes,long bf16Executions) {}
+    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long bf16ResidentBytes,long bf16Executions,long nvfp4ResidentBytes,long nvfp4Executions) {}
     private final TornadoDevice device;
     private final long budget;
     private final FlashNextBf16MatrixExecutor bf16;
+    private final FlashNextNvfp4MatrixExecutor nvfp4;
     private final LinkedHashMap<ModelOptMatrix,Entry> cache=new LinkedHashMap<>(16,.75f,true);
     private long resident,uploads,evictions,executions,kernelNanos,graphId;
     private boolean closed;
 
     public FlashNextMatrixExecutor(int deviceIndex,long budget) {
+        this(deviceIndex,budget,false);
+    }
+    public FlashNextMatrixExecutor(int deviceIndex,long budget,boolean nativeNvfp4) {
         if(budget<=0) throw new IllegalArgumentException("Positive GPU weight cache budget required");
+        if(nativeNvfp4 && budget<2) throw new IllegalArgumentException("Native NVFP4 requires a split cache budget");
         this.device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);
-        this.budget=budget;
+        this.budget=nativeNvfp4 ? budget/2 : budget;
+        nvfp4=nativeNvfp4 ? new FlashNextNvfp4MatrixExecutor(device,budget-this.budget) : null;
         bf16=new FlashNextBf16MatrixExecutor(device,Math.min(budget,256L<<20));
     }
     public String deviceName() { return device.getPhysicalDevice().getDeviceName(); }
-    public synchronized Statistics statistics() { var extra=bf16.statistics();return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size(),extra.residentBytes(),extra.executions()); }
+    @Override public boolean quantizesNvfp4OnDevice() {return nvfp4!=null;}
+    public synchronized Statistics statistics() {
+        var extra=bf16.statistics();var packed=nvfp4==null ? null : nvfp4.statistics();
+        return new Statistics(resident+(packed==null ? 0 : packed.residentBytes()),uploads+(packed==null ? 0 : packed.uploads()),evictions+(packed==null ? 0 : packed.evictions()),
+                executions+(packed==null ? 0 : packed.executions()),kernelNanos+(packed==null ? 0 : packed.kernelNanos()),cache.size()+(packed==null ? 0 : packed.matrices()),
+                extra.residentBytes(),extra.executions(),packed==null ? 0 : packed.residentBytes(),packed==null ? 0 : packed.executions());
+    }
 
     // PRIVATE mappings let Tornado's array header occupy a private copy of the preceding
     // bytes. No checkpoint bytes are changed, and no full host weight copy is required.
@@ -129,12 +141,19 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         run(entry.plain,entry,output);
     }
     @Override public synchronized void multiplyNvfp4(ModelOptMatrix matrix,Nvfp4Activation.Packed values,float[] output) throws IOException {
+        if(closed) throw new IOException("GPU projection cache is closed");
+        if(nvfp4!=null) {nvfp4.multiplyRow(matrix,values,output);return;}
         var entry=entry(matrix);
         for(int i=0;i<values.values().length;i++) entry.packedInput.set(i,values.values()[i]);
         for(int i=0;i<values.scales().length;i++) entry.inputScales.set(i,values.scales()[i]);
         entry.alpha.set(0,matrix.globalScale()*values.globalScale());
         entry.mode.set(0,1);
         run(entry.plain,entry,output);
+    }
+    @Override public synchronized void multiplyNvfp4Values(ModelOptMatrix matrix,float[] input,float scale,float[] output) throws IOException {
+        if(closed) throw new IOException("GPU projection cache is closed");
+        if(nvfp4!=null) nvfp4.multiplyValues(matrix,input,scale,output,1);
+        else MatrixExecutor.super.multiplyNvfp4Values(matrix,input,scale,output);
     }
     @Override public synchronized void multiplyBf16(ModelOptMatrix matrix,float[] input,float[] output,int prefillRows) throws IOException {
         if(closed) throw new IOException("GPU projection cache is closed");
@@ -156,6 +175,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         }
         cache.clear();resident=0;
         try {bf16.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
+        if(nvfp4!=null) try {nvfp4.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         if(failure!=null) throw failure;
     }
 }

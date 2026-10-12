@@ -8,6 +8,7 @@ import org.beehive.jitllm.backend.tornado.FlashNextMatrixExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextDeltaNetExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextLayerExecutor;
 import org.beehive.jitllm.backend.tornado.FlashNextQsaExecutor;
+import org.beehive.jitllm.backend.tornado.FlashNextNvfp4Library;
 
 /** Native full-model reference runner; this host path precedes the device serving integration. */
 public final class FlashNextCpuGenerate {
@@ -20,7 +21,9 @@ public final class FlashNextCpuGenerate {
         boolean recurrent=Boolean.TRUE.equals(request.get("gpu_recurrence"));
         boolean layerOps=Boolean.TRUE.equals(request.get("gpu_hc_ple"));
         boolean sparse=Boolean.TRUE.equals(request.get("gpu_qsa"));
-        try(var executor=projected ? new FlashNextMatrixExecutor(((Number)request.getOrDefault("device",1)).intValue(),((Number)request.getOrDefault("gpu_cache_bytes",16L<<30)).longValue()) : null;
+        boolean packed=Boolean.TRUE.equals(request.get("gpu_nvfp4"));
+        if(packed && !projected) throw new IllegalArgumentException("Native NVFP4 requires GPU projections");
+        try(var executor=projected ? new FlashNextMatrixExecutor(((Number)request.getOrDefault("device",1)).intValue(),((Number)request.getOrDefault("gpu_cache_bytes",16L<<30)).longValue(),packed) : null;
             var recurrence=recurrent ? new FlashNextDeltaNetExecutor(((Number)request.getOrDefault("device",1)).intValue(),
                     ((Number)request.getOrDefault("checkpoint_capacity",8)).intValue(),((Number)request.getOrDefault("gpu_state_bytes",4L<<30)).longValue()) : null;
             var layers=layerOps ? new FlashNextLayerExecutor(((Number)request.getOrDefault("device",1)).intValue(),
@@ -74,6 +77,7 @@ public final class FlashNextCpuGenerate {
                 report.put("device",executor.deviceName());report.put("gpu_cache_bytes",stats.residentBytes());
                 report.put("gpu_uploads",stats.uploads());report.put("gpu_evictions",stats.evictions());report.put("gpu_executions",stats.executions());report.put("gpu_kernel_ns",stats.kernelNanos());
                 report.put("bf16_gemm_cache_bytes",stats.bf16ResidentBytes());report.put("bf16_gemm_executions",stats.bf16Executions());
+                report.put("nvfp4_gemm_cache_bytes",stats.nvfp4ResidentBytes());report.put("nvfp4_gemm_executions",stats.nvfp4Executions());
             }
             if(recurrence!=null) {
                 var stats=recurrence.statistics();
@@ -106,6 +110,12 @@ public final class FlashNextCpuGenerate {
             if(layers!=null) {
                 report.put("gpu_ple_sessions_after_sequence_close",layers.statistics().pleSessions());
                 engine.close();report.put("gpu_layer_bytes_after_engine_close",layers.statistics().residentBytes());
+            }
+            if(packed) {
+                executor.close();var nativeStats=FlashNextNvfp4Library.statistics();
+                if(nativeStats.contexts()!=0 || nativeStats.plans()!=0) throw new AssertionError("NVFP4 native resources leaked");
+                report.put("gpu_nvfp4_native_contexts_after_close",nativeStats.contexts());report.put("gpu_nvfp4_native_plans_after_close",nativeStats.plans());
+                report.put("gpu_nvfp4_native_calls",nativeStats.calls());
             }
             System.out.println(Json.write(report));
         }

@@ -63,6 +63,7 @@ public final class ModelOptMatrix {
     public SafeTensorIndex.Tensor weights() { return weights; }
     public SafeTensorIndex.Tensor blockScales() { return blockScales; }
     public float globalScale() { return globalScale; }
+    public boolean quantizesNvfp4OnDevice() {return executor!=null && executor.quantizesNvfp4OnDevice();}
 
     public void readRow(int row, float[] destination) throws IOException {
         if (row < 0 || row >= rows || destination.length != columns) throw new IllegalArgumentException("Invalid matrix row");
@@ -118,6 +119,11 @@ public final class ModelOptMatrix {
     }
 
     /** Apply the global quantization alpha once after accumulation, as CUTLASS does. */
+    public void multiplyNvfp4Values(float[] input,float scale,float[] output) throws IOException {
+        if(!dtype().equals("U8") || input.length!=columns || output.length!=rows) throw new IllegalArgumentException("Invalid NVFP4 input/output");
+        if(executor!=null) executor.multiplyNvfp4Values(this,input,scale,output);
+        else multiplyNvfp4(Nvfp4Activation.quantize(input,scale),output);
+    }
     public void multiplyNvfp4(Nvfp4Activation.Packed input,float[] output) throws IOException {
         if(!dtype().equals("U8") || input.values().length*2!=columns || input.scales().length!=columns/16 || output.length!=rows)
             throw new IllegalArgumentException("Invalid packed NVFP4 projection");

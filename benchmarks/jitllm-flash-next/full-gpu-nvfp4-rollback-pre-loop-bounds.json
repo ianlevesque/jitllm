@@ -1,0 +1,102 @@
+{
+  "input_tokens": [
+    248045,
+    846,
+    198,
+    17,
+    10,
+    17,
+    19279,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "generated_tokens": [
+    17,
+    478,
+    220
+  ],
+  "text": "2 + ",
+  "elapsed_seconds": 461.011000691,
+  "cache_resident_bytes": 1048576,
+  "trace": [],
+  "paged_reader": {
+    "file_bytes_read": 7856128,
+    "misses": 1918,
+    "budget_bytes": 1048576,
+    "resident_bytes": 1048576,
+    "hits": 147439
+  },
+  "rollback_probe": {
+    "injected_layer": 20,
+    "position_restored": true,
+    "transaction_checkpoints_released": true
+  },
+  "execution": "GPU weight projections and DeltaNet and HC/PLE and QSA; MoE nonlinear work remains on the host",
+  "device": "NVIDIA GeForce RTX 5090",
+  "gpu_cache_bytes": 17167394264,
+  "gpu_uploads": 15777,
+  "gpu_evictions": 11723,
+  "gpu_executions": 40787,
+  "gpu_kernel_ns": 16171388044,
+  "bf16_gemm_cache_bytes": 0,
+  "bf16_gemm_executions": 0,
+  "nvfp4_gemm_cache_bytes": 8588669520,
+  "nvfp4_gemm_executions": 26550,
+  "gpu_recurrence": {
+    "restores": 36,
+    "kernel_ns": 171249627,
+    "checkpoints": 684,
+    "resident_bytes": 1071175968,
+    "sessions": 36,
+    "live_snapshots": 0,
+    "forwards": 664,
+    "state_host_download_bytes": 0
+  },
+  "gpu_hc_ple": {
+    "resident_bytes": 33846760,
+    "hyper_connections": 97,
+    "ple_sessions": 1,
+    "live_snapshots": 0,
+    "hyper_mixes": 1788,
+    "hyper_combines": 1770,
+    "ple_forwards": 19,
+    "checkpoints": 19,
+    "restores": 1,
+    "kernel_ns": 702247494,
+    "state_host_download_bytes": 0
+  },
+  "gpu_qsa": {
+    "reserved_bytes": 3580597824,
+    "materialized_page_bytes": 77071536,
+    "sessions": 12,
+    "pages": 12,
+    "live_snapshots": 0,
+    "forwards": 221,
+    "restores": 12,
+    "kernel_ns": 1440275330,
+    "kv_host_download_bytes": 0,
+    "index_host_download_bytes": 1813084
+  },
+  "gpu_qsa_after_sequence_close_bytes": 0,
+  "gpu_recurrence_after_sequence_close_bytes": 0,
+  "gpu_ple_sessions_after_sequence_close": 0,
+  "gpu_layer_bytes_after_engine_close": 0,
+  "gpu_nvfp4_native_contexts_after_close": 0,
+  "gpu_nvfp4_native_plans_after_close": 0,
+  "gpu_nvfp4_native_calls": 26550,
+  "passed": true,
+  "scope": "Short full-model failure/retry with native NVFP4 and CUDA QSA/DeltaNet/HC/PLE before quantizer loop bounds were made dynamic. Preserved compile-time bottleneck evidence.",
+  "reference_tokens": [
+    17,
+    478,
+    220
+  ],
+  "reference_cached_tokens": 0
+}

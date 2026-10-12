@@ -1,0 +1,63 @@
+{
+  "jitllm": {
+    "tests_run": 803,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "launcher": {
+    "tests_run": 112,
+    "passed": true
+  },
+  "portable_checkpoint_fixtures": {
+    "tests_run": 14,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 68,
+    "fork_and_overlay_exact_match": true
+  },
+  "nvfp4_native_gemm": {
+    "cases": 12,
+    "batches": [
+      1,
+      3,
+      33,
+      128
+    ],
+    "matrices": [
+      "gate",
+      "up",
+      "down"
+    ],
+    "all_outputs_exact": true,
+    "all_activation_and_scale_bytes_exact": true,
+    "raw_packed_switch_exact": true,
+    "device_alpha_updates_exact": true,
+    "caller_thread_replay_exact": true,
+    "native_contexts_after_close": 0,
+    "native_descriptors_after_close": 0
+  },
+  "native_moe": {
+    "steps": 3,
+    "all_values_exact": true,
+    "native_gemms": 90,
+    "passed": true,
+    "rtol": 0.008,
+    "atol": 0.0001
+  },
+  "full_model": {
+    "prompt_tokens": 16,
+    "generated_tokens": [
+      17,
+      478,
+      220
+    ],
+    "reference_cached_tokens": 0,
+    "injected_failure_layer": 20,
+    "native_gemms": 26550,
+    "passed": true
+  },
+  "scope": "Native packed projections/encoding, three MoE cases and one short full-model rollback case. Host scalar MoE failure remains historical; broader text, full device MoE/fusion, MTP, vision/chat replay, context/concurrency and serving remain unqualified."
+}

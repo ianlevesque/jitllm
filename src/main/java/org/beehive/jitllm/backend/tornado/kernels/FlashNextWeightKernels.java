@@ -3,13 +3,50 @@ package org.beehive.jitllm.backend.tornado.kernels;
 import uk.ac.manchester.tornado.api.annotations.Parallel;
 import uk.ac.manchester.tornado.api.types.arrays.ByteArray;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
-import uk.ac.manchester.tornado.api.types.arrays.IntArray;
+import uk.ac.manchester.tornado.api.math.TornadoMath;
 import uk.ac.manchester.tornado.api.types.arrays.BFloat16Array;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 
-/** Storage-preserving reference projections. Activations supplied by the caller are FP32.
- * W4A4 quantization and tensor-core dispatch must be added before using this in the serving plan.
- */
+/** Storage-preserving scalar projections and CUDA encoding helpers for native GEMM. */
 public final class FlashNextWeightKernels {
+    /** CUDA fast reciprocal encoding, matching the staged FlashInfer NVFP4 quantizer. */
+    public static void quantizeNvfp4(FloatArray input,FloatArray calibration,IntArray mode,FloatArray e4m3,FloatArray e2m1,ByteArray packed,ByteArray scales) {
+        for(@Parallel int block=0;block<scales.getSize();block++) {
+            if(mode.get(1)==1) {
+                float maximum=0;for(int i=0;i<16;i++) maximum=TornadoMath.max(maximum,TornadoMath.abs(input.get(block*16+i)));
+                float inverseGlobal=calibration.get(2),sf=inverseGlobal*(maximum*(1f/6f));
+                int encoded=0;float distance=Float.MAX_VALUE;
+                // Runtime bounds prevent Graal from cloning the nested encoder
+                // hundreds of times for every newly selected expert plan.
+                int e4Codes=mode.get(2),e2Codes=mode.get(3),lanes=mode.get(4);
+                for(int code=0;code<e4Codes;code++) {float d=TornadoMath.abs(sf-e4m3.get(code));if(d<distance || (d==distance && (code&1)==0)) {encoded=code;distance=d;}}
+                scales.set(block,(byte)encoded);
+                float inverse=maximum==0 ? 0 : 1f/(e4m3.get(encoded)*(1f/inverseGlobal));
+                for(int pair=0;pair<e2Codes;pair++) {
+                    int byteValue=0;
+                    for(int lane=0;lane<lanes;lane++) {
+                        float value=input.get(block*16+pair*2+lane)*inverse;int sign=(Float.floatToRawIntBits(value)>>>28)&8;
+                        float magnitude=TornadoMath.abs(value),bestDistance=Float.MAX_VALUE;int best=0;
+                        for(int code=0;code<e2Codes;code++) {float delta=TornadoMath.abs(magnitude-e2m1.get(code));if(delta<bestDistance || (delta==bestDistance && (code&1)==0)) {best=code;bestDistance=delta;}}
+                        if(magnitude>=6) best=7;
+                        byteValue|=(sign|best)<<(lane*4);
+                    }
+                    packed.set(block*8+pair,(byte)byteValue);
+                }
+            }
+        }
+    }
+    /** cuBLASLt's 128x4 scale tile, retaining the original checkpoint's scale bytes. */
+    public static void swizzleNvfp4Scales(ByteArray input,ByteArray output,IntArray initialized,int rows,int columns,int once) {
+        for(@Parallel int i=0;i<output.getSize();i++) {
+            if(once==0 || initialized.get(0)==0) {
+                int tile=i/512,local=i%512,tilesPerRow=columns/4;
+                int row=(tile/tilesPerRow)*128+(local%16)/4*32+local/16;
+                int column=(tile%tilesPerRow)*4+local%4;
+                output.set(i,row<rows ? input.get(row*columns+column) : (byte)0);
+            }
+        }
+    }
     private FlashNextWeightKernels() {}
     public static void bf16GemmInput(FloatArray input,BFloat16Array packed,int columns,int broadcast) {
         for(@Parallel int i=0;i<packed.getSize();i++) {

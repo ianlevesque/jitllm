@@ -1,0 +1,46 @@
+{
+  "scale": 0.003185453824698925,
+  "packed_mismatches": 3,
+  "coordinates": [
+    [
+      8,
+      75
+    ],
+    [
+      12,
+      290
+    ],
+    [
+      29,
+      58
+    ]
+  ],
+  "observed": [
+    238,
+    237,
+    101
+  ],
+  "expected": [
+    237,
+    221,
+    85
+  ],
+  "values": [
+    [
+      -0.06689453125,
+      -0.072265625
+    ],
+    [
+      -0.061767578125,
+      -0.06689453125
+    ],
+    [
+      0.061767578125,
+      0.06689453125
+    ]
+  ],
+  "passed": false,
+  "projection": "model.language_model.layers.0.mlp.experts.0.down_proj",
+  "batch_rows": 33,
+  "scope": "Before CUDA activation packing, three CPU-packed bytes differed from the actual FlashInfer quantizer; scale bytes matched. Preserved diagnostic evidence."
+}

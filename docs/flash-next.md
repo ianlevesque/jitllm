@@ -27,7 +27,7 @@ The tested CUDA/JDK 25 TornadoVM revision is
   and a second FP32 scale, plus the MTP's 128-by-128 FP8 block scaling.
 - Packed NVFP4 and block-FP8 CUDA reference projections through TornadoVM.
   Both floating reference activations and packed W4A4 activations are supported.
-  These are scalar reference kernels; tensor-core execution remains required.
+  The scalar path remains available; target NVFP4 tensor-core execution is described below.
 - A validated Qwen4 configuration with independent head/RoPE dimensions,
   explicit linear/full attention layers, one-based PLE placement, and separate
   MTP dimensions. Native context remains 262,144 rather than an inherited
@@ -57,7 +57,7 @@ The tested CUDA/JDK 25 TornadoVM revision is
   sparse selection beyond the 2,048-token budget and exact state rollback/reset.
 - Host top-10/512-expert routing, NVFP4 W4A4 activation packing, per-layer global
   activation scales and the BF16 shared expert. Packed activation bytes match
-  FlashInfer across four global scales. The strict MoE output gate remains red.
+  FlashInfer across four global scales. The host/scalar MoE gate remains red; the native cases below now pass exactly.
 - A complete 48-layer host pipeline with transactional sequence rollback and
   a padded-vocabulary mask. The safetensors architecture and host forward pass
   are registered with JITLLM's existing provider services.
@@ -234,6 +234,52 @@ runner. They establish these short cases only; efficient batched prefill,
 plan fusion, broader text correctness and production GPU serving remain.
 
 
+
+Native NVFP4 projections now use CUDA 13 cuBLASLt with packed E2M1 weights,
+E4M3 scales for each 16 elements, and BF16 outputs. CUDA also packs activations
+using the staged fast-reciprocal encode recipe; no BF16 weight expansion occurs.
+Scale bytes are rearranged into the vendor's 128x4 layout on the GPU. The binding
+uses TornadoVM's library-provider SPI, device alpha/beta pointers, cached native
+descriptors and a 1 MiB workspace per cached plan. GEMM batches contain distinct
+rows and zero padding to a multiple of 32. The encoding plan uses
+`--prec-div=false`; other native plans retain their existing precision policy.
+Runtime encoder loop bounds avoid repeated Graal expansion of nested loops.
+
+`gpu-nvfp4-native-batch-parity.json` covers the real layer-0 expert gate/up/down
+matrices at batches 1, 3, 33 and 128. All 12 cases match FlashInfer CUTLASS
+exactly, including packed activation/scaling bytes, graph replay, caller-thread
+changes, raw/packed input switching, device alpha changes, source-byte windows
+and zero native contexts/descriptors after close. The comparison retains
+rtol 0.008 / atol 0.0001. Explicit packing diagnostics download bytes; normal
+projections retain their encoded activations on the device.
+
+`gpu-native-nvfp4-moe-parity.json` passes all three strict real MoE cases exactly,
+with 90 native GEMMs and 105 total projections. This resolves the recorded
+numeric difference for these native cases. `moe-parity.json` remains the
+historical failing host/scalar comparison. Routing, SwiGLU/shared gates and
+MoE finalization still execute on the host, and broader trajectories remain
+unqualified. `gpu-nvfp4-native-pre-quantization-fix.json` preserves the three
+activation-byte mismatches that identified the encode rounding problem.
+
+Set `gpu_nvfp4: true` with `gpu_projections: true` to select this native path.
+The main `gpu_cache_bytes` budget is split equally between packed native plans
+(including their workspaces) and dense/scalar projections; the separate BF16
+GEMM cache remains capped at 256 MiB. The normal GPU model provider, device
+plan fusion, efficient batched full-model prefill, FP8 draft tensor cores,
+long-context/concurrent serving, MTP and multimodal/chat replay remain required.
+`full-gpu-nvfp4-rollback-conformance.json` checks the same 16-token ChatML
+failure/retry case with native NVFP4 enabled. Its three greedy tokens match a
+fresh uncached staged result exactly. It executes 26,550 native GEMMs, restores
+all recurrent/QSA/PLE states after the injected error, and releases native
+contexts/descriptors and sequence buffers after close. The file reader remains
+at 1 MiB, and both projection caches together stay within 16 GiB. This is a
+short sequential diagnostic, not serving or broad text qualification. It took
+about 403 seconds; the pre-loop-bound report retains the earlier 461-second
+run. Layer-plan fusion and grouped expert execution remain needed for practical
+latency and memory use.
+
+The binding follows [NVIDIA's CUDA 13 cuBLASLt block-scaling requirements](https://docs.nvidia.com/cuda/archive/13.0.0/cublas/index.html#d-block-scaling-factors-layout).
+
 ## Build and reproduce checks
 
 Run commands from the root of this JITLLM checkout. Use JDK 25 and the pinned CUDA
@@ -320,6 +366,8 @@ python3 scripts/flash-next/jitllm_runtime.py cache-probe MODEL_DIR CACHE_REQUEST
 python3 scripts/flash-next/jitllm_runtime.py recurrent-probe MODEL_DIR RECURRENT_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py hc-ple-probe MODEL_DIR HC_PLE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py bf16-batch-probe MODEL_DIR BF16_BATCH_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py nvfp4-batch-probe MODEL_DIR NVFP4_BATCH_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py moe-probe MODEL_DIR MOE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-probe MODEL_DIR QSA_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-paging-probe --device 1
 python3 scripts/flash-next/jitllm_runtime.py generate MODEL_DIR scripts/flash-next/examples/short-chatml.json
@@ -354,11 +402,11 @@ and an optional `cache_bytes` budget.
 
 ## Remaining requirements for the original goal
 
-1. Broaden text conformance beyond the successful short ChatML case. Resolve
-   the strict MoE numeric differences, validate prompt/decode and reused-session
+1. Broaden text conformance beyond the successful short ChatML case. Broaden
+   the native MoE numeric checks, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
 2. Complete GPU QSA provider/long-context qualification, implement GPU MoE, and fuse the native layer plans,
-   including efficient packed NVFP4 tensor-core projections. Connect that plan
+   including grouped native NVFP4 projections and FP8 draft tensor cores. Connect that plan
    to the normal model provider; it currently refuses full GPU loads explicitly.
 3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index
    reuse, and rejection/accepted-prefix rollback for every request state.
