@@ -14,4 +14,15 @@ public interface MatrixExecutor {
         multiply(matrix,input,output);
         for(int i=0;i<output.length;i++) output[i]=FloatFormats.roundBf16(output[i]);
     }
+    default void multiplyBf16Batch(ModelOptMatrix matrix,float[] input,float[] output,int rows) throws IOException {
+        if(rows<=0 || input.length!=Math.multiplyExact(rows,matrix.columns()) || output.length!=Math.multiplyExact(rows,matrix.rows()))
+            throw new IllegalArgumentException("Invalid BF16 batch");
+        for(int row=0;row<rows;row++) {
+            float[] values=java.util.Arrays.copyOfRange(input,row*matrix.columns(),(row+1)*matrix.columns()),result=new float[matrix.rows()];
+            multiplyBf16(matrix,values,result,rows);System.arraycopy(result,0,output,row*matrix.rows(),result.length);
+        }
+    }
+    default void multiplyBlockFp8Values(ModelOptMatrix matrix,float[] input,float routeWeight,float[] output) throws IOException {
+        matrix.multiplyBlockFp8Reference(Fp8Activation.quantize(input),routeWeight,output);
+    }
 }

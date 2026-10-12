@@ -9,6 +9,7 @@ public interface MoeExecutor {
     interface Layer extends AutoCloseable {
         Result forward(float[] input) throws IOException;
         default float[] routingWeights() throws IOException {throw new UnsupportedOperationException("No routing diagnostics");}
+        default java.util.Map<String,float[]> intermediates() throws IOException {throw new UnsupportedOperationException("No MoE intermediate diagnostics");}
         @Override void close() throws IOException;
     }
     Layer newLayer(ModelOptMatrix router,ModelOptMatrix sharedGate,ModelOptMatrix sharedUp,ModelOptMatrix sharedDown,ModelOptMatrix sharedRouter,

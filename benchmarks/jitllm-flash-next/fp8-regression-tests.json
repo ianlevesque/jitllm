@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "java_suite": {
+    "tests": 808,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "launcher_tests": 112,
+  "matching_overlay_clone_fork_files": 97,
+  "fp8_native_batch_cases": 12,
+  "fp8_moe_cases": 3,
+  "fp8_moe_forwards": 6,
+  "fp8_moe_peak_bytes": 132353572,
+  "fp8_moe_budget_bytes": 134217728,
+  "fp8_moe_intermediate_download_bytes": 0,
+  "mtp_block_and_speculative_decoding_implemented": false
+}

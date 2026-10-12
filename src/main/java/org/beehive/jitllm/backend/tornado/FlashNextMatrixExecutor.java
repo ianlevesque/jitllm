@@ -160,6 +160,11 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         if(matrix.dtype().equals("BF16")) bf16.multiplyRow(matrix,input,output,prefillRows);
         else MatrixExecutor.super.multiplyBf16(matrix,input,output,prefillRows);
     }
+    @Override public synchronized void multiplyBf16Batch(ModelOptMatrix matrix,float[] input,float[] output,int rows) throws IOException {
+        if(closed) throw new IOException("GPU projection cache is closed");
+        if(matrix.dtype().equals("BF16")) bf16.multiplyBatch(matrix,input,output,rows);
+        else MatrixExecutor.super.multiplyBf16Batch(matrix,input,output,rows);
+    }
     private void run(TornadoExecutionPlan plan,Entry entry,float[] output) throws IOException {
         try {
             long nanos=plan.execute().getProfilerResult().getDeviceKernelTime();

@@ -265,8 +265,8 @@ Set `gpu_nvfp4: true` with `gpu_projections: true` to select this native path.
 The main `gpu_cache_bytes` budget is split equally between packed native plans
 (including their workspaces) and dense/scalar projections; the separate BF16
 GEMM cache remains capped at 256 MiB. The normal CUDA model provider is integrated; cross-layer device
-plan fusion, efficient batched full-model prefill, FP8 draft tensor cores,
-long-context/concurrent serving, MTP and multimodal/chat replay remain required.
+plan fusion, efficient batched full-model prefill, complete MTP draft layers,
+long-context/concurrent serving and multimodal/chat replay remain required.
 `full-gpu-nvfp4-rollback-conformance.json` checks the same 16-token ChatML
 failure/retry case with native NVFP4 enabled. Its three greedy tokens match a
 fresh uncached staged result exactly. It executes 26,550 native GEMMs, restores
@@ -315,6 +315,47 @@ workspace and packed expert residency. The standalone native NVFP4 projection
 path remains available. Full layer-to-layer device plan fusion, efficient
 batched prefill, MTP/FP8 draft math, native vision
 and exact chat replay, full context/concurrency and deployment are still needed.
+
+## Native block-FP8 MTP expert primitives
+
+MTP routed experts now have native W8A8 CUDA execution that preserves the
+checkpoint's E4M3 bytes and 128-by-128 FP32 scales. On SM120, CUDA 13's direct
+FP32 block-scale descriptors are unavailable, so cuBLASLt computes FP32
+partials for each 128-wide K partition. CUDA applies the original weight and
+activation scales, accumulates the partitions, and stores BF16 results. Weights
+are never expanded to BF16. The distinct-row projection primitive rounds inputs
+to BF16 before dynamic group encoding.
+
+The MTP MoE executor keeps routing, activation encoding, SwiGLU, FC1/FC2
+partials, the shared expert and finalization on the device. Only routing
+metadata and final output are downloaded during normal forwards. Packed expert
+residency uses bounded LRU entries with leases through each forward. FC2 applies
+the routing weight before its BF16 store, matching the staged Triton path.
+Optional stage traces explicitly download intermediates for diagnosis.
+
+The CUDA encoder uses `--use_fast_math`, as does the staged SM120 quantizer.
+Precise division changed E4M3 rounding at midpoint boundaries and failed strict
+parity; using the staged fast reciprocal fixes the observed mismatches. The
+host reference retains IEEE division and can differ at those boundaries.
+
+`gpu-fp8-native-batch-parity.json` records 12 real MTP gate/up/down projections
+at batches 1, 3, 33 and 128. Activation bytes and scales match exactly in every
+case. Eleven output cases are exact; the remaining case differs in one value by
+0.0000152587890625 and passes the unchanged rtol 0.008 / atol 0.0001. Graph replay
+and a changed caller thread are exact, and native resources return to zero.
+`gpu-fp8-moe-parity.json` records three complete real MTP MoE cases, each
+replayed exactly. Two outputs are exact; the third has maximum error
+0.00006103515625 and passes the same strict tolerance. Six forwards reuse one
+layer plan, execute 1,500 native partition GEMMs and force five expert-cache
+evictions. Peak tracked residency is 132,353,572 bytes within a 128 MiB budget;
+normal intermediate downloads and all resources after close are zero.
+`fp8-regression-tests.json` records 808 Java tests with zero failures/errors
+and three skips, 112 passing launcher tests, and 97 matching source files
+across the launcher overlay, pinned clone and fork checkout.
+
+These are expert subsystem checks. The complete MTP block, draft-three token
+verification, frozen QSA index reuse and accepted/rejected-prefix rollback are
+still required. The normal model/API does not yet perform speculative decoding.
 
 ## Normal CUDA model/API integration
 
@@ -464,6 +505,8 @@ python3 scripts/flash-next/jitllm_runtime.py recurrent-probe MODEL_DIR RECURRENT
 python3 scripts/flash-next/jitllm_runtime.py hc-ple-probe MODEL_DIR HC_PLE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py bf16-batch-probe MODEL_DIR BF16_BATCH_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py nvfp4-batch-probe MODEL_DIR NVFP4_BATCH_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py fp8-batch-probe MODEL_DIR FP8_BATCH_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py fp8-moe-probe MODEL_DIR FP8_MOE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py moe-probe MODEL_DIR MOE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-probe MODEL_DIR QSA_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-paging-probe --device 1
@@ -503,9 +546,9 @@ and an optional `cache_bytes` budget.
    the native MoE numeric checks, validate prompt/decode and reused-session
    trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
 2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
-   including grouped native NVFP4 projections and FP8 draft tensor cores. The normal CUDA
+   including grouped native NVFP4 projections and complete FP8 draft-layer integration. The normal CUDA
    model provider now dispatches through its owned plans; production serving remains to be qualified.
-3. Add MTP/NextN draft-three verification, block-FP8 draft layers, QSA index
+3. Add the complete MTP/NextN block and draft-three verification, QSA index
    reuse, and rejection/accepted-prefix rollback for every request state.
 4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
    prefill/chunking, memory planning and three-request scheduling. Configuration

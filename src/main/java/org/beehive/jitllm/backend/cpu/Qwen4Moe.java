@@ -8,7 +8,7 @@ import org.beehive.jitllm.format.safetensors.*;
 import org.beehive.jitllm.model.qwen4.Qwen4Configuration;
 import org.beehive.jitllm.inference.op.MoeExecutor;
 
-/** Qwen4 top-k routing, NVFP4 W4A4 routed experts and the gated BF16 shared expert. */
+/** Qwen4 top-k routing, NVFP4 W4A4 or MTP block-FP8 routed experts and BF16 shared expert. */
 public final class Qwen4Moe implements AutoCloseable {
     public record Routing(int[] experts,float[] weights) {}
     public record Result(float[] output,Routing routing) {}
@@ -16,6 +16,7 @@ public final class Qwen4Moe implements AutoCloseable {
     private final ModelOptMatrix router,sharedGate,sharedUp,sharedDown,sharedRouter;
     private final ModelOptMatrix[] gates,ups,downs;
     private final float inputScale,intermediateScale;
+    private final boolean fp8Experts;
     private final MoeExecutor.Layer device;
     private final MoeExecutor moeExecutor;
     private boolean closed;
@@ -36,17 +37,23 @@ public final class Qwen4Moe implements AutoCloseable {
         sharedRouter=Qwen4CpuLayers.matrix(index,reader,prefix+".shared_expert_gate",1,config.dim(),executor);
         gates=new ModelOptMatrix[config.experts()];ups=new ModelOptMatrix[config.experts()];downs=new ModelOptMatrix[config.experts()];
         float in=0,mid=0;
+        String expertType=null;
         for(int expert=0;expert<config.experts();expert++) {
             String name=prefix+".experts."+expert;
             gates[expert]=Qwen4CpuLayers.matrix(index,reader,name+".gate_proj",config.hiddenDim(),config.dim(),executor);
             ups[expert]=Qwen4CpuLayers.matrix(index,reader,name+".up_proj",config.hiddenDim(),config.dim(),executor);
             downs[expert]=Qwen4CpuLayers.matrix(index,reader,name+".down_proj",config.dim(),config.hiddenDim(),executor);
-            if(!gates[expert].dtype().equals("U8") || !ups[expert].dtype().equals("U8") || !downs[expert].dtype().equals("U8"))
-                throw new IOException("Target routed experts must use NVFP4: "+name);
-            in=Math.max(in,Math.max(scale(index,reader,name+".gate_proj.input_scale"),scale(index,reader,name+".up_proj.input_scale")));
-            mid=Math.max(mid,scale(index,reader,name+".down_proj.input_scale"));
+            if(expertType==null) expertType=gates[expert].dtype();
+            if(!(expertType.equals("U8") || expertType.equals("F8_E4M3")) || !gates[expert].dtype().equals(expertType)
+                    || !ups[expert].dtype().equals(expertType) || !downs[expert].dtype().equals(expertType))
+                throw new IOException("Routed experts must uniformly use NVFP4 or block FP8: "+name);
+            if(expertType.equals("U8")) {
+                in=Math.max(in,Math.max(scale(index,reader,name+".gate_proj.input_scale"),scale(index,reader,name+".up_proj.input_scale")));
+                mid=Math.max(mid,scale(index,reader,name+".down_proj.input_scale"));
+            }
         }
         inputScale=in;intermediateScale=mid;
+        fp8Experts=expertType.equals("F8_E4M3");
         device=moeExecutor==null ? null : moeExecutor.newLayer(router,sharedGate,sharedUp,sharedDown,sharedRouter,gates,ups,downs,config.expertsPerToken(),config.normalizeTopK(),in,mid);
     }
     private static float scale(SafeTensorIndex index,PagedTensorReader reader,String name) throws IOException {
@@ -76,26 +83,33 @@ public final class Qwen4Moe implements AutoCloseable {
         if(device!=null) {var result=device.forward(input);return new Result(result.output(),new Routing(result.experts(),result.weights()));}
         float[] logits=Qwen4CpuLayers.project(router,input);
         Routing routing=route(logits,config.expertsPerToken(),config.normalizeTopK());
-        var quantizedInput=router.quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(input,inputScale);
+        var quantizedInput=fp8Experts || router.quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(input,inputScale);
         float[] accumulated=new float[config.dim()];
         for(int selected=0;selected<routing.experts().length;selected++) {
             int expert=routing.experts()[selected];
-            float[] gate=projectPacked(gates[expert],input,inputScale,quantizedInput),up=projectPacked(ups[expert],input,inputScale,quantizedInput);
+            float[] gate=fp8Experts ? projectFp8(gates[expert],input,1) : projectPacked(gates[expert],input,inputScale,quantizedInput);
+            float[] up=fp8Experts ? projectFp8(ups[expert],input,1) : projectPacked(ups[expert],input,inputScale,quantizedInput);
             float[] activated=swiglu(gate,up);
             // CUTLASS UnfusedGemmOutputType is its BF16 backbone type;
             // routing finalization accumulates those rounded FC2 values in FP32.
-            var quantized=downs[expert].quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(activated,intermediateScale);
-            float[] output=projectPacked(downs[expert],activated,intermediateScale,quantized);
-            for(int i=0;i<accumulated.length;i++) accumulated[i]=Math.fma(routing.weights()[selected],output[i],accumulated[i]);
+            var quantized=fp8Experts || downs[expert].quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(activated,intermediateScale);
+            float[] output=fp8Experts ? projectFp8(downs[expert],activated,routing.weights()[selected]) : projectPacked(downs[expert],activated,intermediateScale,quantized);
+            for(int i=0;i<accumulated.length;i++) accumulated[i]=fp8Experts ? accumulated[i]+output[i] : Math.fma(routing.weights()[selected],output[i],accumulated[i]);
         }
         float[] shared=Qwen4CpuLayers.project(sharedDown,swiglu(Qwen4CpuLayers.project(sharedGate,input),Qwen4CpuLayers.project(sharedUp,input)));
         float sharedWeight=bf((float)(1/(1+Math.exp(-Qwen4CpuLayers.project(sharedRouter,input)[0]))));
         for(int i=0;i<accumulated.length;i++) accumulated[i]=bf(bf(accumulated[i])+bf(shared[i]*sharedWeight));
         return new Result(accumulated,routing);
     }
+    private static float[] projectFp8(ModelOptMatrix matrix,float[] input,float route) throws IOException {
+        float[] output=new float[matrix.rows()];matrix.multiplyBlockFp8Values(input,route,output);return output;
+    }
     public float[] diagnosticRoutingWeights() throws IOException {
         if(device==null) throw new IllegalStateException("No device routing weights");
         return device.routingWeights();
+    }
+    public java.util.Map<String,float[]> diagnosticIntermediates() throws IOException {
+        if(device==null) throw new IllegalStateException("No device MoE");return device.intermediates();
     }
     @Override public void close() throws IOException {if(closed) return;closed=true;if(device!=null) device.close();}
     public static Routing route(float[] logits,int count,boolean normalize) {

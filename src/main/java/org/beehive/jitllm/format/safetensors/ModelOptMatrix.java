@@ -118,6 +118,39 @@ public final class ModelOptMatrix {
         }
     }
 
+    public void multiplyBf16Batch(float[] input,float[] output,int batch) throws IOException {
+        if(batch<=0 || input.length!=Math.multiplyExact(batch,columns) || output.length!=Math.multiplyExact(batch,rows))
+            throw new IllegalArgumentException("Invalid BF16 matrix batch");
+        if(executor!=null) executor.multiplyBf16Batch(this,input,output,batch);
+        else for(int row=0;row<batch;row++) {
+            float[] values=java.util.Arrays.copyOfRange(input,row*columns,(row+1)*columns),result=new float[rows];
+            multiplyBf16(values,result,batch);System.arraycopy(result,0,output,row*rows,rows);
+        }
+    }
+    /** FP8 routed experts multiply the routing weight before the BF16 FC2 store. */
+    public void multiplyBlockFp8Values(float[] input,float routeWeight,float[] output) throws IOException {
+        if(!dtype().equals("F8_E4M3") || input.length!=columns || output.length!=rows || !Float.isFinite(routeWeight))
+            throw new IllegalArgumentException("Invalid block FP8 projection");
+        if(executor!=null) executor.multiplyBlockFp8Values(this,input,routeWeight,output);
+        else multiplyBlockFp8Reference(Fp8Activation.quantize(input),routeWeight,output);
+    }
+    public void multiplyBlockFp8Reference(Fp8Activation.Packed input,float routeWeight,float[] output) throws IOException {
+        if(!dtype().equals("F8_E4M3") || input.values().length!=columns || output.length!=rows || columns%128!=0)
+            throw new IllegalArgumentException("Invalid block FP8 projection");
+        int scaleBytes=blockScales.dtype().equals("F32") ? 4 : 2;
+        for(int row=0;row<rows;row++) {
+            byte[] weights=reader.read(this.weights,(long)row*rowBytes,rowBytes);
+            var scales=ByteBuffer.wrap(reader.read(blockScales,(long)(row/128)*scaleColumns*scaleBytes,scaleColumns*scaleBytes)).order(ByteOrder.LITTLE_ENDIAN);
+            float sum=0;
+            for(int block=0;block<columns/128;block++) {
+                float weightScale=scaleBytes==4 ? scales.getFloat() : FloatFormats.bf16(scales.getShort()),dot=0;
+                for(int i=0;i<128;i++) dot=Math.fma(FloatFormats.e4m3(weights[block*128+i]&255),FloatFormats.e4m3(input.values()[block*128+i]&255),dot);
+                sum=Math.fma(dot,weightScale*input.scales()[block],sum);
+            }
+            output[row]=FloatFormats.roundBf16(sum*routeWeight);
+        }
+    }
+
     /** Apply the global quantization alpha once after accumulation, as CUTLASS does. */
     public void multiplyNvfp4Values(float[] input,float scale,float[] output) throws IOException {
         if(!dtype().equals("U8") || input.length!=columns || output.length!=rows) throw new IllegalArgumentException("Invalid NVFP4 input/output");
