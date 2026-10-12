@@ -88,3 +88,6 @@ __pycache__/
 # repository content, and ignored rather than merely untracked so it cannot be
 # swept up by a `git add -A`.
 /CODEX_ANALYSIS_WARMUP.md
+
+# Local SDK/JDK caches used by the Flash-Next development helpers.
+/.local/

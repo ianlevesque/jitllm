@@ -1,0 +1,142 @@
+{
+  "evictions": 8,
+  "checkpoint_bytes_unchanged": true,
+  "gpu_kernel_ns": 24510303,
+  "cache_resident_bytes": 6602692,
+  "uploads": 9,
+  "executions": 21,
+  "device": "NVIDIA GeForce RTX 5090",
+  "comparisons": [
+    {
+      "max_absolute_error": 1.6689300537109375e-06,
+      "packed_activation": false,
+      "round": 0,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": true,
+      "round": 0,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 1.6689300537109375e-06,
+      "packed_activation": false,
+      "round": 0,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 0,
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 0,
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 0,
+      "matrix": "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 0,
+      "matrix": "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down"
+    },
+    {
+      "max_absolute_error": 1.3113021850585938e-06,
+      "packed_activation": false,
+      "round": 1,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": true,
+      "round": 1,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 1.3113021850585938e-06,
+      "packed_activation": false,
+      "round": 1,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 1,
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 1,
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 1,
+      "matrix": "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 1,
+      "matrix": "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down"
+    },
+    {
+      "max_absolute_error": 1.2516975402832031e-06,
+      "packed_activation": false,
+      "round": 2,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": true,
+      "round": 2,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 1.2516975402832031e-06,
+      "packed_activation": false,
+      "round": 2,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 2,
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 2,
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 2,
+      "matrix": "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down"
+    },
+    {
+      "max_absolute_error": 0,
+      "packed_activation": false,
+      "round": 2,
+      "matrix": "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_down"
+    }
+  ],
+  "cache_budget_bytes": 7500000,
+  "jitllm_ref": "67a7b8b28e19f3212bfbfc251de7ff9bb35bd863",
+  "tornadovm_ref": "a40ccf9a692fc06fe4c499f3700a3037e91dfebe",
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "tornado_device_index": 1
+}

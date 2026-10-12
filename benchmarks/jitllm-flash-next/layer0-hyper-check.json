@@ -1,0 +1,31 @@
+{
+  "device": "NVIDIA GeForce RTX 5090",
+  "comparisons": [
+    {
+      "operation": "attn_hyper_connection.attn_mix",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0
+    },
+    {
+      "operation": "attn_hyper_connection.attn_combined",
+      "max_absolute_error": 6.103515625e-05,
+      "rmse": 7.84658311658859e-07,
+      "exact_fraction": 0.9984375238418579
+    },
+    {
+      "operation": "mlp_hyper_connection.mlp_mix",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0
+    },
+    {
+      "operation": "mlp_hyper_connection.output",
+      "max_absolute_error": 1.4901161193847656e-08,
+      "rmse": 1.4725502761603337e-10,
+      "exact_fraction": 0.9999023675918579
+    }
+  ],
+  "input": "First ChatML token <|im_start|>, using native embedding and intermediate vectors",
+  "scope": "Intermediate comparison; not full-model conformance"
+}

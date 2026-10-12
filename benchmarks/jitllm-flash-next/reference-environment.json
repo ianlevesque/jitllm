@@ -1,0 +1,17 @@
+{
+  "scope": "Original staged Python/CUDA oracle environment; optional for running native JITLLM",
+  "packages": {
+    "torch": "2.13.0",
+    "safetensors": "0.8.0",
+    "tokenizers": "0.22.2",
+    "flashinfer-python": "0.6.18",
+    "sglang": "0.5.21.dev274+g745de73ba",
+    "nvidia-cuda-runtime": "13.0.96",
+    "nvidia-cudnn-cu13": "9.20.0.48"
+  },
+  "sglang_ref": "745de73ba3c136b6f99b7a3e2177ed1a8eef4a56",
+  "tornadovm_ref": "a40ccf9a692fc06fe4c499f3700a3037e91dfebe",
+  "jitllm_upstream_ref": "67a7b8b28e19f3212bfbfc251de7ff9bb35bd863",
+  "checkpoint_repository": "nvidia/Qwen3.8-Flash-Next-NVFP4",
+  "checkpoint_revision": "fc694b54fb0174e0913e6adf86691ef85a4ead47"
+}

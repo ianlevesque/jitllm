@@ -1,0 +1,26 @@
+package org.beehive.jitllm.backend.cpu;
+
+import java.io.IOException;
+import java.util.Map;
+import org.beehive.jitllm.format.ModelSource;
+import org.beehive.jitllm.model.Model;
+import org.beehive.jitllm.model.provider.ModelProvider;
+import org.beehive.jitllm.runtime.backend.BackendId;
+import org.beehive.jitllm.runtime.model.ArchitectureId;
+
+/** Recognize Flash-Next without opening tensor payloads. */
+public final class Qwen4ModelProvider implements ModelProvider {
+    @Override public boolean supports(ModelSource source) {
+        Object type = source.metadata().get("model_type");
+        return "qwen4_exp_text".equals(type) || ("qwen4_exp".equals(type)
+                && source.metadata().get("text_config") instanceof Map<?,?> text
+                && "qwen4_exp_text".equals(text.get("model_type")));
+    }
+    @Override public ArchitectureId architecture(ModelSource source) { return Qwen4CpuModel.ARCHITECTURE; }
+    @Override public Model load(ModelSource source, BackendId backend, int contextLength) throws IOException {
+        if (!supports(source) || !source.isSafetensors()) throw new IOException("Expected a Qwen4-Exp safetensors directory: " + source.path());
+        if (!BackendId.CPU.equals(backend)) throw new UnsupportedOperationException("Qwen4-Exp full GPU execution is not implemented yet; select CPU for the native reference path");
+        long budget = Long.getLong("jitllm.qwen4.pageCacheBytes", 1048576L);
+        return new Qwen4CpuModel(new Qwen4CpuEngine(source.path(), contextLength, budget, null));
+    }
+}

@@ -1,0 +1,73 @@
+{
+  "jitllm_ref": "67a7b8b28e19f3212bfbfc251de7ff9bb35bd863",
+  "tornadovm_ref": "a40ccf9a692fc06fe4c499f3700a3037e91dfebe",
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "activation_dtype": "F32",
+  "weight_formats": [
+    "NVFP4",
+    "block-FP8"
+  ],
+  "tornado_device_index": 1,
+  "projections": [
+    {
+      "matrix": "model.language_model.layers.0.mlp.experts.0.gate_proj",
+      "dtype": "U8",
+      "columns": 2560,
+      "packed_weight_bytes": 819200,
+      "max_absolute_error": 0,
+      "rows": 640,
+      "device": "NVIDIA GeForce RTX 5090",
+      "gpu_kernel_ns": 1046496
+    },
+    {
+      "gpu_kernel_ns": 1034112,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.up_proj",
+      "dtype": "U8",
+      "columns": 2560,
+      "packed_weight_bytes": 819200,
+      "max_absolute_error": 0,
+      "rows": 640,
+      "device": "NVIDIA GeForce RTX 5090"
+    },
+    {
+      "columns": 640,
+      "packed_weight_bytes": 819200,
+      "max_absolute_error": 0,
+      "rows": 2560,
+      "device": "NVIDIA GeForce RTX 5090",
+      "gpu_kernel_ns": 630560,
+      "matrix": "model.language_model.layers.0.mlp.experts.0.down_proj",
+      "dtype": "U8"
+    },
+    {
+      "matrix": "mtp.layers.0.mlp.experts.0.gate_proj",
+      "dtype": "F8_E4M3",
+      "columns": 2560,
+      "packed_weight_bytes": 1638400,
+      "max_absolute_error": 0,
+      "rows": 640,
+      "device": "NVIDIA GeForce RTX 5090",
+      "gpu_kernel_ns": 1213280
+    },
+    {
+      "rows": 640,
+      "max_absolute_error": 0,
+      "packed_weight_bytes": 1638400,
+      "columns": 2560,
+      "dtype": "F8_E4M3",
+      "matrix": "mtp.layers.0.mlp.experts.0.up_proj",
+      "gpu_kernel_ns": 1219520,
+      "device": "NVIDIA GeForce RTX 5090"
+    },
+    {
+      "rows": 2560,
+      "max_absolute_error": 0,
+      "packed_weight_bytes": 1638400,
+      "columns": 640,
+      "dtype": "F8_E4M3",
+      "matrix": "mtp.layers.0.mlp.experts.0.down_proj",
+      "gpu_kernel_ns": 710080,
+      "device": "NVIDIA GeForce RTX 5090"
+    }
+  ]
+}

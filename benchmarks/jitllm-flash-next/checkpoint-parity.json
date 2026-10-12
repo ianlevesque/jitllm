@@ -1,0 +1,93 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "config_sha256": "deef67a61f3311faf051b23dc4192f442c7fee4f9cd2f38cbcbe4da55c763a80",
+  "tensor_count": 132,
+  "shards": 128,
+  "table_rows": 320001536,
+  "row_width": 160,
+  "hash_windows": 67,
+  "gather_rows": 1584,
+  "max_absolute_error": 0.0,
+  "cache": {
+    "bytes_read": 6197248,
+    "misses": 1513,
+    "budget_bytes": 1048576,
+    "resident_bytes": 1048576,
+    "hits": 149
+  },
+  "java_heap_limit_mib": 128,
+  "matrices": [
+    {
+      "prefix": "model.language_model.layers.0.mlp.experts.0.gate_proj",
+      "dtype": "U8",
+      "rows_checked": [
+        0,
+        1,
+        127,
+        128,
+        639
+      ],
+      "max_absolute_error": 0.0
+    },
+    {
+      "prefix": "model.language_model.layers.0.mlp.experts.0.up_proj",
+      "dtype": "U8",
+      "rows_checked": [
+        0,
+        1,
+        127,
+        128,
+        639
+      ],
+      "max_absolute_error": 0.0
+    },
+    {
+      "prefix": "model.language_model.layers.0.mlp.experts.0.down_proj",
+      "dtype": "U8",
+      "rows_checked": [
+        0,
+        1,
+        127,
+        128,
+        2559
+      ],
+      "max_absolute_error": 0.0
+    },
+    {
+      "prefix": "mtp.layers.0.mlp.experts.0.gate_proj",
+      "dtype": "F8_E4M3",
+      "rows_checked": [
+        0,
+        1,
+        127,
+        128,
+        639
+      ],
+      "max_absolute_error": 0.0
+    },
+    {
+      "prefix": "mtp.layers.0.mlp.experts.0.up_proj",
+      "dtype": "F8_E4M3",
+      "rows_checked": [
+        0,
+        1,
+        127,
+        128,
+        639
+      ],
+      "max_absolute_error": 0.0
+    },
+    {
+      "prefix": "mtp.layers.0.mlp.experts.0.down_proj",
+      "dtype": "F8_E4M3",
+      "rows_checked": [
+        0,
+        1,
+        127,
+        128,
+        2559
+      ],
+      "max_absolute_error": 0.0
+    }
+  ]
+}

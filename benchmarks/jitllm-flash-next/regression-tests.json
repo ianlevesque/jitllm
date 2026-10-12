@@ -1,0 +1,17 @@
+{
+  "launcher": {
+    "command": ".venv/bin/python -m unittest discover -s tests -v",
+    "tests_run": 112,
+    "passed": true
+  },
+  "jitllm": {
+    "command": "python3 jitllm_runtime.py test",
+    "cpu_vector_bits": 256,
+    "tests_run": 796,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "scope": "Regression and subsystem checks. One short full-model text conformance case passes; the strict MoE numeric gate still fails."
+}

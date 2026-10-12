@@ -2,6 +2,8 @@ package org.beehive.jitllm.format;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Files;
+import org.beehive.jitllm.format.safetensors.MetadataJson;
 import java.util.Map;
 import java.util.Objects;
 
@@ -13,24 +15,44 @@ import java.util.Objects;
  * whole discovery pass rather than one per provider — providers are asked in turn, and a source
  * that re-read the file for each of them would make adding a provider cost a file read.
  *
- * <p>Lives in the format layer because that is what it is: a GGUF file. When a second format
- * arrives, this is the type that grows a sibling, not the SPI.
+ * <p>Supports GGUF files and Hugging Face safetensors directories. Recognition reads metadata
+ * only; tensor headers and payloads remain the selected provider’s responsibility.
  */
 public final class ModelSource {
 
     private final Path path;
     private final GGUF gguf;
+    private final boolean safetensors;
     private final Map<String, Object> metadata;
 
     private ModelSource(Path path, GGUF gguf, Map<String, Object> metadata) {
         this.path = path;
         this.gguf = gguf;
+        this.safetensors = false;
         this.metadata = metadata;
+    }
+
+    private ModelSource(Path directory, Map<String, Object> config) {
+        this.path = directory;
+        this.gguf = null;
+        this.safetensors = true;
+        this.metadata = Map.copyOf(config);
     }
 
     /** Reads the metadata; the tensor data is not touched. */
     public static ModelSource ofFile(Path path) throws IOException {
         Objects.requireNonNull(path, "path");
+        if (Files.isDirectory(path)) {
+            if (!Files.isRegularFile(path.resolve("model.safetensors.index.json"))
+                    && !Files.isRegularFile(path.resolve("model.safetensors"))) {
+                throw new IOException("No safetensors checkpoint in " + path);
+            }
+            try {
+                return new ModelSource(path, MetadataJson.parseObject(Files.readString(path.resolve("config.json"))));
+            } catch (IllegalArgumentException malformed) {
+                throw new IOException("Invalid checkpoint config in " + path, malformed);
+            }
+        }
         GGUF gguf = GGUF.loadGGUFMetadata(path);
         return new ModelSource(path, gguf, gguf.getMetadata());
     }
@@ -66,7 +88,12 @@ public final class ModelSource {
 
     /** Whether this source can be loaded, or only recognized. */
     public boolean isLoadable() {
-        return gguf != null;
+        return gguf != null || safetensors;
+    }
+
+    /** Whether this is a loadable Hugging Face safetensors directory. */
+    public boolean isSafetensors() {
+        return safetensors;
     }
 
     /**
@@ -75,6 +102,9 @@ public final class ModelSource {
      * @throws IllegalStateException if this source carries metadata only
      */
     public GGUF gguf() {
+        if (safetensors) {
+            throw new IllegalStateException(path + " is a safetensors directory, not a GGUF file");
+        }
         if (gguf == null) {
             throw new IllegalStateException(
                     path

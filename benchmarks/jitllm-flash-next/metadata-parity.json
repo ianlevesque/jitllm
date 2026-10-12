@@ -1,0 +1,26 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "texts_checked": 247,
+  "all_token_ids_exact": true,
+  "all_decodes_exact": true,
+  "dimensions": {
+    "layers": 48,
+    "kv_layers": 12,
+    "hidden_size": 2560,
+    "hyper_size": 10240,
+    "kv_dim": 512,
+    "head_size": 256,
+    "rotary_dim": 64,
+    "linear_qkv_dim": 10240,
+    "context": 262144,
+    "ple_row_width": 160,
+    "ple_heads": 16,
+    "ple_layers": [
+      2
+    ],
+    "experts": 512,
+    "experts_per_token": 10,
+    "recurrent_state_bytes": 115642368,
+    "mtp_layers": 1
+  }
+}

@@ -335,12 +335,12 @@ final class DelegatingModel implements TextGenerationModel {
     private static long bytesPerBlock(
             Model model, org.beehive.jitllm.runtime.policy.StorageOptions storage) {
         var config = model.configuration();
-        long kvDim = (long) config.dim() * config.numberOfKeyValueHeads() / config.numberOfHeads();
+        long kvDim = model.kvCacheDim();
         // Taken from the resolved storage options rather than assumed FP32: the accounting a
         // caller sees should describe the pool that was actually built, and an FP16 pool costs
         // half. It read Float.BYTES unconditionally with a comment admitting the gap.
         long bytesPerValue = storage.usesFp16KeyValueCache() ? Short.BYTES : Float.BYTES;
-        return 2L * kvDim * BLOCK_SIZE_TOKENS * config.numberOfLayers() * bytesPerValue;
+        return 2L * kvDim * BLOCK_SIZE_TOKENS * config.keyValueLayerCount() * bytesPerValue;
     }
 
     @Override
@@ -463,10 +463,15 @@ final class DelegatingModel implements TextGenerationModel {
             loweredWorkspace = null;
             loweredDomain = null;
             programs.close();
+            if (delegate instanceof AutoCloseable resource) {
+                try {
+                    resource.close();
+                } catch (Exception failure) {
+                    throw new IllegalStateException("Cannot release model weights for " + info.name(), failure);
+                }
+            }
         }
-        // Nothing else to release here: the weights are memory-mapped and the sessions that owned
-        // device memory have already released it. This is the seam where an explicit weight
-        // release lands once the model owns its device buffers.
+
     }
 
     /**

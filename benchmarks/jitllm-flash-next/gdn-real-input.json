@@ -1,0 +1,10 @@
+{
+  "reference": "SGLang TritonGDNKernel + fused gated RMS norm",
+  "device": "NVIDIA GeForce RTX 5090",
+  "max_absolute_error": 0.001953125,
+  "rmse": 0.0003742096887435764,
+  "exact_fraction": 0.512890636920929,
+  "output_gate": "sigmoid",
+  "input": "First ChatML token <|im_start|>, using native intermediate vectors",
+  "scope": "Intermediate comparison; not full-model conformance"
+}

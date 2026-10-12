@@ -1,0 +1,7 @@
+{
+  "global_scale": 0.0013892764691263437,
+  "device": "NVIDIA GeForce RTX 5090",
+  "packed_value_mismatches": 0,
+  "block_scale_mismatches": 0,
+  "input": "Real first-layer MLP mixed input for <|im_start|>"
+}

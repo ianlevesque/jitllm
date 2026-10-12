@@ -1,5 +1,10 @@
 # jitLLM: LLM inference & serving for the JVM, on any GPU
 
+This fork includes experimental Qwen3.8 Flash-Next NVFP4 support with bounded
+NVMe PLE/Engram paging, a full host text pipeline, and native CUDA weight
+projections. See [implementation status, tests, and run instructions](docs/flash-next.md).
+
+
 [![build JDK21](https://github.com/beehive-lab/jitllm/actions/workflows/build-and-run.yml/badge.svg)](https://github.com/beehive-lab/jitllm/actions/workflows/build-and-run.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/io.github.beehive-lab/jitllm?&logo=apache-maven&color=blue)](https://central.sonatype.com/artifact/io.github.beehive-lab/jitllm)
 ![Java 21](https://img.shields.io/badge/java-21-blue?logo=openjdk)

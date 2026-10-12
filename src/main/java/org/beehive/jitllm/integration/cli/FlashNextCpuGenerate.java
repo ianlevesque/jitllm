@@ -1,0 +1,51 @@
+package org.beehive.jitllm.integration.cli;
+
+import java.nio.file.*;
+import java.util.*;
+import org.beehive.jitllm.backend.cpu.Qwen4CpuEngine;
+import org.beehive.jitllm.server.Json;
+import org.beehive.jitllm.backend.tornado.FlashNextMatrixExecutor;
+
+/** Native full-model reference runner; this host path precedes the device serving integration. */
+public final class FlashNextCpuGenerate {
+    public static void main(String[] args) throws Exception {
+        if(args.length!=2) throw new IllegalArgumentException("Usage: FlashNextCpuGenerate MODEL_DIR REQUEST.json");
+        var request=Json.parseObject(Files.readString(Path.of(args[1])));
+        int maximum=((Number)request.getOrDefault("max_tokens",1)).intValue();
+        long start=System.nanoTime();
+        boolean projected=Boolean.TRUE.equals(request.get("gpu_projections"));
+        try(var executor=projected ? new FlashNextMatrixExecutor(((Number)request.getOrDefault("device",1)).intValue(),((Number)request.getOrDefault("gpu_cache_bytes",16L<<30)).longValue()) : null;
+            var engine=new Qwen4CpuEngine(Path.of(args[0]),-1,1048576,(loaded,total)->System.err.println("Loaded layer "+loaded+"/"+total),executor)) {
+            List<Integer> tokens;
+            if(request.containsKey("input_tokens")) tokens=((List<?>)request.get("input_tokens")).stream().map(v->((Number)v).intValue()).toList();
+            else tokens=engine.tokenizer().encode((String)request.get("prompt"),engine.tokenizer().getSpecialTokens().keySet());
+            if(tokens.isEmpty() || maximum<1) throw new IllegalArgumentException("Nonempty prompt and positive token count are required");
+            var sequence=engine.newSequence();Qwen4CpuEngine.Output output=null;
+            sequence.beginInitialPrefill(tokens.size());
+            List<Object> trace=new ArrayList<>();
+            var callback=Boolean.TRUE.equals(request.get("trace_layers")) ? (java.util.function.BiConsumer<Integer,float[]>)(layer,values)-> {
+                double squares=0,largest=0;for(float value:values) {squares+=value*value;largest=Math.max(largest,Math.abs(value));}
+                trace.add(Map.of("position",sequence.position(),"layer",layer,"rms",Math.sqrt(squares/values.length),"max_abs",largest));
+                System.err.println("Forward position "+sequence.position()+" layer "+layer);
+            } : null;
+            for(int i=0;i<tokens.size();i++) output=engine.forward(tokens.get(i),sequence,i==tokens.size()-1,callback);
+            List<Integer> generated=new ArrayList<>();
+            for(int i=0;i<maximum;i++) {
+                int token=output.greedy();generated.add(token);
+                System.err.println("Generated token "+token);
+                if(token==engine.configuration().eosToken() || token==engine.tokenizer().getSpecialTokens().get("<|im_end|>")) break;
+                if(i+1<maximum) output=engine.forward(token,sequence,true,callback);
+            }
+            var report=new LinkedHashMap<String,Object>();
+            report.put("input_tokens",tokens);report.put("generated_tokens",generated);report.put("text",engine.tokenizer().decode(generated));
+            report.put("elapsed_seconds",(System.nanoTime()-start)/1e9);report.put("cache_resident_bytes",engine.statistics().residentBytes());report.put("trace",trace);
+            if(executor!=null) {
+                var stats=executor.statistics();
+                report.put("execution","GPU weight projections with host nonlinear/recurrent/attention execution");
+                report.put("device",executor.deviceName());report.put("gpu_cache_bytes",stats.residentBytes());
+                report.put("gpu_uploads",stats.uploads());report.put("gpu_evictions",stats.evictions());report.put("gpu_executions",stats.executions());report.put("gpu_kernel_ns",stats.kernelNanos());
+            }
+            System.out.println(Json.write(report));
+        }
+    }
+}

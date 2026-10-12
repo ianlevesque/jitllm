@@ -1,0 +1,39 @@
+{
+  "device": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+  "input_dtype": "BF16",
+  "quantizer": "FlashInfer fp4_quantize CUDA",
+  "cases": [
+    {
+      "global_scale": 0.0005,
+      "rows": 48,
+      "columns": 2560,
+      "packed_bytes_checked": 61440,
+      "scale_bytes_checked": 7680,
+      "all_bytes_exact": true
+    },
+    {
+      "global_scale": 0.002,
+      "rows": 48,
+      "columns": 2560,
+      "packed_bytes_checked": 61440,
+      "scale_bytes_checked": 7680,
+      "all_bytes_exact": true
+    },
+    {
+      "global_scale": 0.01,
+      "rows": 48,
+      "columns": 2560,
+      "packed_bytes_checked": 61440,
+      "scale_bytes_checked": 7680,
+      "all_bytes_exact": true
+    },
+    {
+      "global_scale": 1.0,
+      "rows": 48,
+      "columns": 2560,
+      "packed_bytes_checked": 61440,
+      "scale_bytes_checked": 7680,
+      "all_bytes_exact": true
+    }
+  ]
+}

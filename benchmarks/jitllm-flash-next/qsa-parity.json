@@ -1,0 +1,159 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "steps": 12,
+  "positions": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      1
+    ],
+    [
+      2,
+      1,
+      2
+    ],
+    [
+      3,
+      1,
+      3
+    ],
+    [
+      4,
+      2,
+      4
+    ],
+    [
+      5,
+      2,
+      5
+    ],
+    [
+      6,
+      3,
+      6
+    ],
+    [
+      7,
+      3,
+      0
+    ],
+    [
+      8,
+      4,
+      1
+    ],
+    [
+      9,
+      4,
+      2
+    ],
+    [
+      10,
+      5,
+      3
+    ],
+    [
+      11,
+      5,
+      4
+    ]
+  ],
+  "compression_ratio": 4,
+  "token_budget": 2048,
+  "rollback_exact": true,
+  "reset_exact": true,
+  "cache_resident_bytes": 1048576,
+  "rtol": 0.016,
+  "atol": 0.004,
+  "comparisons": [
+    {
+      "step": 0,
+      "max_absolute_error": 3.0517578125e-05,
+      "rmse": 6.031565931152727e-07,
+      "exact_fraction": 0.9996093511581421,
+      "selected_tokens": 1
+    },
+    {
+      "step": 1,
+      "max_absolute_error": 0.000244140625,
+      "rmse": 4.825252744922182e-06,
+      "exact_fraction": 0.9996093511581421,
+      "selected_tokens": 2
+    },
+    {
+      "step": 2,
+      "max_absolute_error": 0.001953125,
+      "rmse": 4.4224168959772214e-05,
+      "exact_fraction": 0.998828113079071,
+      "selected_tokens": 3
+    },
+    {
+      "step": 3,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.0002526672906242311,
+      "exact_fraction": 0.951953113079071,
+      "selected_tokens": 4
+    },
+    {
+      "step": 4,
+      "max_absolute_error": 0.00390625,
+      "rmse": 0.00011512317723827437,
+      "exact_fraction": 0.9859374761581421,
+      "selected_tokens": 5
+    },
+    {
+      "step": 5,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.00021003595611546189,
+      "exact_fraction": 0.97265625,
+      "selected_tokens": 6
+    },
+    {
+      "step": 6,
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "selected_tokens": 7
+    },
+    {
+      "step": 7,
+      "max_absolute_error": 7.62939453125e-06,
+      "rmse": 1.5078914827881817e-07,
+      "exact_fraction": 0.9996093511581421,
+      "selected_tokens": 8
+    },
+    {
+      "step": 8,
+      "max_absolute_error": 0.000244140625,
+      "rmse": 4.973756858817069e-06,
+      "exact_fraction": 0.999218761920929,
+      "selected_tokens": 9
+    },
+    {
+      "step": 9,
+      "max_absolute_error": 2.9802322387695312e-08,
+      "rmse": 5.890201104641335e-10,
+      "exact_fraction": 0.9996093511581421,
+      "selected_tokens": 10
+    },
+    {
+      "step": 10,
+      "max_absolute_error": 0.00390625,
+      "rmse": 0.0002285576774738729,
+      "exact_fraction": 0.958203136920929,
+      "selected_tokens": 11
+    },
+    {
+      "step": 11,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.0002985672908835113,
+      "exact_fraction": 0.942578136920929,
+      "selected_tokens": 12
+    }
+  ]
+}

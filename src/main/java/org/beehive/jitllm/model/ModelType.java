@@ -118,6 +118,8 @@ public enum ModelType {
         }
     },
 
+    QWEN_4_EXP,
+
     UNKNOWN {
         @Override
         public Model loadModel(
@@ -127,8 +129,9 @@ public enum ModelType {
     };
 
     // Abstract method that each enum constant must implement
-    public abstract Model loadModel(
-            FileChannel fileChannel, GGUF gguf, int contextLength, boolean useTornadovm);
+    public Model loadModel(FileChannel fileChannel, GGUF gguf, int contextLength, boolean useTornadovm) {
+        throw new UnsupportedOperationException(this + " requires its ModelProvider; enable jitllm.providers");
+    }
 
     public boolean isDeepSeekR1() {
         return this == DEEPSEEK_R1_DISTILL_QWEN;

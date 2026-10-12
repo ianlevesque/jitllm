@@ -1,0 +1,24 @@
+{
+  "jitllm": {
+    "command": "python3 scripts/flash-next/jitllm_runtime.py test",
+    "tests_run": 796,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3,
+    "passed": true
+  },
+  "checkpoint_fixtures": {
+    "command": "python3 -m unittest discover -s scripts/flash-next -p 'test_*.py' -v",
+    "tests_run": 14,
+    "passed": true
+  },
+  "source_copy": {
+    "files": 45,
+    "exact_match": true
+  },
+  "runtime_wrapper": {
+    "cuda_devices_enumerated": 2,
+    "passed": true
+  },
+  "scope": "Standalone fork validation. Historical conformance reports retain their original scope and the strict MoE failure."
+}
