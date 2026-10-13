@@ -1,0 +1,384 @@
+{
+  "passed": false,
+  "failures": [
+    {
+      "step": 7,
+      "stage": "attention",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 35 / 2560 (1.4%)\nGreatest absolute difference: 0.015625 at index (606,) (up to 0.004 allowed)\nGreatest relative difference: 5.654545307159424 at index (1232,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "after_attention",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 148 / 10240 (1.4%)\nGreatest absolute difference: 0.025390625 at index (724,) (up to 0.004 allowed)\nGreatest relative difference: 6.7746477127075195 at index (7578,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "mlp_mix",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 136 / 2560 (5.3%)\nGreatest absolute difference: 0.0390625 at index (1348,) (up to 0.004 allowed)\nGreatest relative difference: 5.282722473144531 at index (1628,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "moe",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 535 / 2560 (20.9%)\nGreatest absolute difference: 0.01953125 at index (990,) (up to 0.004 allowed)\nGreatest relative difference: inf at index (2262,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "hyper_hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 2447 / 10240 (23.9%)\nGreatest absolute difference: 0.0390625 at index (3516,) (up to 0.004 allowed)\nGreatest relative difference: 282.2340393066406 at index (5835,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1130 / 2560 (44.1%)\nGreatest absolute difference: 0.25 at index (1651,) (up to 0.004 allowed)\nGreatest relative difference: 11.239999771118164 at index (2280,) (up to 0.016 allowed)"
+    }
+  ],
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "reference": "Staged CUDA Gemma/HC/sparse-prefill/fused-gate/Triton-W8A8",
+  "decode_reference": "FlashInfer paged BF16 decode over FP8-rounded KV (XQA on SM120)",
+  "teacher_tokens": [
+    17,
+    478,
+    220,
+    20,
+    248044
+  ],
+  "draft_tokens": [
+    9419,
+    1814,
+    0
+  ],
+  "rtol": 0.016,
+  "atol": 0.004,
+  "comparisons": [
+    {
+      "step": 0,
+      "draft": false,
+      "greedy": 15,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 1,
+      "draft": false,
+      "greedy": 44,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 2,
+      "draft": false,
+      "greedy": 19,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.001953125,
+          "exact_fraction": 0.999218761920929
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.00390625,
+          "exact_fraction": 0.9994140863418579
+        },
+        "hidden": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.9476562738418579
+        }
+      }
+    },
+    {
+      "step": 3,
+      "draft": false,
+      "greedy": 220,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 4,
+      "draft": false,
+      "greedy": 220,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 5,
+      "draft": true,
+      "greedy": 198,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 6,
+      "draft": true,
+      "greedy": 471,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.00390625,
+          "exact_fraction": 0.9683593511581421
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.9842773675918579
+        },
+        "hidden": {
+          "max_absolute_error": 0.125,
+          "exact_fraction": 0.911328136920929
+        }
+      }
+    },
+    {
+      "step": 7,
+      "draft": true,
+      "greedy": 198,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0078125,
+          "exact_fraction": 0.913281261920929
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0078125,
+          "exact_fraction": 0.762499988079071
+        },
+        "attention": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.25859373807907104
+        },
+        "after_attention": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.4632812440395355
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0390625,
+          "exact_fraction": 0.3402343690395355
+        },
+        "moe": {
+          "max_absolute_error": 0.01953125,
+          "exact_fraction": 0.09140624850988388
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0625,
+          "exact_fraction": 0.16845703125
+        },
+        "hidden": {
+          "max_absolute_error": 0.25,
+          "exact_fraction": 0.10703124850988388
+        }
+      }
+    }
+  ],
+  "execution": {
+    "rollback_exact": true,
+    "reset_exact": true,
+    "failure_retry_exact": true,
+    "draft_steps": 3,
+    "native_calls": 4500,
+    "moe_forwards": 18,
+    "qsa_forwards": 18,
+    "qsa_restores": 4,
+    "kv_download_bytes": 0,
+    "fusion_forwards": 18,
+    "fusion_peak_bytes": 60014800,
+    "moe_peak_bytes": 132353572,
+    "resources_after_close": 0,
+    "native_xqa_calls": 8,
+    "native_xqa_contexts_after_close": 0
+  },
+  "target_verification_and_acceptance_loop_implemented": false
+}

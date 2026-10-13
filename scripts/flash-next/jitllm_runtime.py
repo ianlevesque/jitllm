@@ -30,6 +30,8 @@ def runtime_environment(install: Path = INSTALL) -> tuple[Path, dict]:
     if env.get("LD_LIBRARY_PATH"):
         paths.append(env["LD_LIBRARY_PATH"])
     env["LD_LIBRARY_PATH"] = ":".join(paths)
+    from jitllm_native_libraries import native_qsa_environment
+    native_qsa_environment(Path(env.get("JITLLM_QSA_PROVENANCE",ROOT/".local/jitllm-native-libs/qsa-provenance.json")),env)
     return sdk, env
 
 
@@ -43,6 +45,8 @@ def main():
     paging.add_argument("--device",type=int,default=1)
     draft=commands.add_parser("qsa-draft-probe")
     draft.add_argument("--device",type=int,default=1)
+    xqa=commands.add_parser("xqa-probe")
+    xqa.add_argument("request",type=Path)
     probe = commands.add_parser("probe")
     probe.add_argument("model", type=Path)
     probe.add_argument("--matrix", default="model.language_model.layers.0.mlp.experts.0.gate_proj")
@@ -65,6 +69,10 @@ def main():
         subprocess.run([str(sdk / "bin/tornado"), "--jvm", "--enable-preview --add-modules=jdk.incubator.vector -Xmx1g -Dtornado.device.memory=1GB",
                         "--classpath", str(ROOT / "target/classes"),
                         "org.beehive.jitllm.integration.cli."+("FlashNextQsaPagingProbe" if args.command=="qsa-paging-probe" else "FlashNextQsaDraftProbe"),str(args.device)],env=env,check=True)
+    elif args.command == "xqa-probe":
+        subprocess.run([str(sdk / "bin/tornado"), "--jvm", "--enable-preview --enable-native-access=ALL-UNNAMED --add-modules=jdk.incubator.vector -Xmx1g",
+                        "--classpath", str(ROOT / "target/classes"),
+                        "org.beehive.jitllm.integration.cli.FlashNextXqaProbe",str(args.request)],env=env,check=True)
     else:
         if args.command == "probe":
             main_class = "FlashNextNvfp4Probe"

@@ -21,7 +21,7 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
 public final class FlashNextFp8MoeExecutor implements MoeExecutor,AutoCloseable {
     public record Statistics(long residentBytes,long layerBytes,long expertBytes,int layers,int registeredExperts,long uploads,long evictions,
                              long expertFileBytes,long forwards,long kernelNanos,long idDownloadBytes,long intermediateDownloadBytes,long peakBytes,long layerBuilds) {}
-    private static final int PAD=32;
+    private static final int PAD=16;
     private final TornadoDevice device;
     private final long budget;
     private final Set<DeviceLayer> layers=Collections.newSetFromMap(new IdentityHashMap<>());
@@ -68,6 +68,7 @@ public final class FlashNextFp8MoeExecutor implements MoeExecutor,AutoCloseable 
                 input=floats(dim);output=floats(dim);selected=ints(top);routeWeights=floats(top);diagnosticWeights=floats(top);
                 var logits=floats(512);var sharedGate=floats(sg.rows());var sharedUp=floats(su.rows());var sharedMid=floats(sg.rows());var scratch=floats(1);
                 var shared=floats(dim);var sharedRouter=floats(1);
+                var sharedInput=bfloats(dim);var sharedGateBf=bfloats(sg.rows());var sharedUpBf=bfloats(su.rows());var sharedMidBf=bfloats(sg.rows());var sharedBf=bfloats(dim);
                 var padded=floats(PAD*dim);var packed=bytes(PAD*dim);var sf=floats(PAD*dim/128);
                 var mid=floats(top*PAD*hidden);var midPacked=bytes(top*PAD*hidden);var midSf=floats(top*PAD*hidden/128);
                 var partial1=floats(top*PAD*2*hidden*(dim/128));var partial2=floats(top*PAD*dim*(hidden/128));
@@ -77,13 +78,18 @@ public final class FlashNextFp8MoeExecutor implements MoeExecutor,AutoCloseable 
                 resources1=ints(top);resources2=ints(top);scale1=floats(top*(2*hidden/128)*(dim/128));scale2=floats(top*(dim/128)*(hidden/128));
                 String id="flashnextFp8Moe"+(graphId++);
                 var preparation=new TaskGraph(id)
-                        .transferToDevice(DataTransferMode.FIRST_EXECUTION,rw,gw,uw,dw,sw,padded,table,control)
+                        .transferToDevice(DataTransferMode.FIRST_EXECUTION,rw,gw,uw,dw,sw,padded,table,control,sharedInput,sharedGateBf,sharedUpBf,sharedMidBf,sharedBf)
                         .transferToDevice(DataTransferMode.EVERY_EXECUTION,input)
                         .task("router",FlashNextWeightKernels::denseMatvec,input,rw,logits,dim,0).task("routerBoundary",FlashNextMoeKernels::bf16Boundary,logits)
-                        .task("gate",FlashNextWeightKernels::denseMatvec,input,gw,sharedGate,dim,0).task("gateBoundary",FlashNextMoeKernels::bf16Boundary,sharedGate)
-                        .task("up",FlashNextWeightKernels::denseMatvec,input,uw,sharedUp,dim,0).task("upBoundary",FlashNextMoeKernels::bf16Boundary,sharedUp)
+                        .task("packShared",FlashNextWeightKernels::bf16GemmInput,input,sharedInput,dim,0)
+                        .libraryTask("gate",FlashNextSharedBf16Library::project,sg.rows(),dim,gw,sharedInput,sharedGateBf)
+                        .task("gateBoundary",FlashNextWeightKernels::bf16GemmOutput,sharedGateBf,sharedGate)
+                        .libraryTask("up",FlashNextSharedBf16Library::project,su.rows(),dim,uw,sharedInput,sharedUpBf)
+                        .task("upBoundary",FlashNextWeightKernels::bf16GemmOutput,sharedUpBf,sharedUp)
                         .task("sharedActivation",FlashNextMoeKernels::swiglu,sharedGate,sharedUp,sharedMid)
-                        .task("sharedDown",FlashNextWeightKernels::denseMatvec,sharedMid,dw,shared,sg.rows(),0).task("sharedBoundary",FlashNextMoeKernels::bf16Boundary,shared)
+                        .task("packSharedMid",FlashNextWeightKernels::bf16GemmInput,sharedMid,sharedMidBf,sg.rows(),0)
+                        .libraryTask("sharedDown",FlashNextSharedBf16Library::project,dim,sg.rows(),dw,sharedMidBf,sharedBf)
+                        .task("sharedBoundary",FlashNextWeightKernels::bf16GemmOutput,sharedBf,shared)
                         .task("sharedRouter",FlashNextWeightKernels::denseMatvec,input,sw,sharedRouter,dim,0).task("sharedRouterBoundary",FlashNextMoeKernels::bf16Boundary,sharedRouter)
                         .task("route",FlashNextMoeKernels::route,new KernelContext(),logits,selected,routeWeights,normalize ? 1 : 0)
                         .task("pad",FlashNextFp8MoeExecutor::pad,input,padded)
@@ -116,7 +122,7 @@ public final class FlashNextFp8MoeExecutor implements MoeExecutor,AutoCloseable 
                         .task("scales",FlashNextFp8Kernels::readExpertFloat,midSf,traceScales,hidden/128,PAD)
                         .transferToHost(DataTransferMode.EVERY_EXECUTION,traceFc1,traceMid,traceDown,traceShared,traceRouter,traceScales);
                 var worker=new WorkerGrid1D(512);worker.setLocalWork(512,1,1);var scheduler=new GridScheduler(id+".route",worker);
-                bytes+=FlashNextFp8Library.WORKSPACE_BYTES;
+                bytes+=FlashNextFp8Library.WORKSPACE_BYTES+FlashNextSharedBf16Library.WORKSPACE_BYTES;
                 built=new TornadoExecutionPlan(preparation.snapshot(),fc1.snapshot(),fc2.snapshot(),diagnostic.snapshot(),trace.snapshot()).withDevice(device).withGridScheduler(scheduler)
                         .withProfiler(ProfilerMode.SILENT).withCompilerFlags(TornadoVMBackendType.CUDA,"--use_fast_math");plan=built;
             } catch(Exception|Error error) {if(built!=null) try {built.close();} catch(Exception cleanup) {error.addSuppressed(cleanup);}arena.close();throw new IOException("Cannot construct GPU MoE layer",error);}

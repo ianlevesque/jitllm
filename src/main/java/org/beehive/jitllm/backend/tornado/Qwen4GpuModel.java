@@ -54,7 +54,7 @@ public final class Qwen4GpuModel extends Qwen4CpuModel implements ManagedDeviceM
             var projections=new FlashNextMatrixExecutor(device,projectionBudget);resources.add(projections);
             var recurrence=new FlashNextDeltaNetExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuStateBytes",4L<<30));resources.add(recurrence);
             var layers=new FlashNextLayerExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuLayerBytes",64L<<20));resources.add(layers);
-            var attention=new FlashNextQsaExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuQsaBytes",16L<<30));resources.add(attention);
+            var attention=new FlashNextQsaExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuQsaBytes",16L<<30),true);resources.add(attention);
             var moe=new FlashNextMoeExecutor(device,weights-projectionBudget);resources.add(moe);
             var engine=new Qwen4CpuEngine(directory,contextLength,pageBudget,null,projections,recurrence,layers,attention,moe);
             resources.add(engine);
@@ -77,7 +77,7 @@ public final class Qwen4GpuModel extends Qwen4CpuModel implements ManagedDeviceM
         if (!(state instanceof org.beehive.jitllm.inference.state.Qwen4State)) throw new IllegalArgumentException("Expected Flash-Next state");
         return new ExecutionInfo("CUDA",projections.deviceName(),"TornadoVM / CUDA", "sequential prefill and decode",1,
                 "FP8 E4M3 paged KV / BF16 fresh-prefill shadow", "BF16 projections / native NVFP4 experts", "QSA sparse GQA",false,true,
-                "cuBLASLt NVFP4 experts; cuBLAS BF16 HC for prefill >16 rows");
+                "cuBLASLt NVFP4 experts / FP32 HC; cuBLAS BF16 HC prefill; FlashInfer XQA decode");
     }
     private void requireOpen() { if(engine().isClosed()) throw new IllegalStateException("Flash-Next CUDA model is closed"); }
     /** Shared HC/projection/MoE workspaces require serialization across sessions. */

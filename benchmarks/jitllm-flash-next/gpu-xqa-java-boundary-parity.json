@@ -1,0 +1,123 @@
+{
+  "resources_after_close": 0,
+  "kernel_ns": 5462519,
+  "workspace_bytes_per_context": 16777216,
+  "native_calls": 48,
+  "passed": true,
+  "cases": [
+    {
+      "replay_exact": true,
+      "selected_tokens": 1,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 6,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 63,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 64,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 65,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 2048,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 2051,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 2054,
+      "reload": 0,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 1,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 6,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 63,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 64,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 65,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 2048,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 2051,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    },
+    {
+      "replay_exact": true,
+      "selected_tokens": 2054,
+      "reload": 1,
+      "caller_thread_exact": true,
+      "exact": true
+    }
+  ],
+  "reference": "Staged FlashInfer XQA BF16 decode over FP8-rounded KV",
+  "scope": "Native Java ABI, sparse/page boundaries, graph replay, caller-thread stream changes, library reload and resource release. Not full-model speculative acceptance."
+}

@@ -22,13 +22,17 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
     private final TornadoDevice device;
     private final long budget;
     private final int checkpointCapacity;
+    private final boolean nativeDecode;
     private final Set<DeviceSession> sessions=Collections.newSetFromMap(new IdentityHashMap<>());
     private long reserved,graphId,forwards,restores,kernelNanos,indexDownloads;
     private boolean closed;
     public FlashNextQsaExecutor(int deviceIndex,int checkpointCapacity,long budget) {
+        this(deviceIndex,checkpointCapacity,budget,false);
+    }
+    public FlashNextQsaExecutor(int deviceIndex,int checkpointCapacity,long budget,boolean nativeDecode) {
         if(checkpointCapacity<=0 || budget<=0) throw new IllegalArgumentException("Positive QSA budget and checkpoint capacity required");
         device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);
-        this.budget=budget;this.checkpointCapacity=checkpointCapacity;
+        this.budget=budget;this.checkpointCapacity=checkpointCapacity;this.nativeDecode=nativeDecode;
     }
     public synchronized Statistics statistics() {
         long materialized=0;int pages=0,snapshots=0;
@@ -43,6 +47,8 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
         if(qNorm.length!=shape.dimension() || kNorm.length!=shape.dimension() || iqNorm.length!=shape.indexDimension() || ikNorm.length!=shape.indexDimension()
                 || axes.length!=shape.rotaryDimensions()/2 || frequencies.length!=axes.length) throw new IllegalArgumentException("Invalid QSA normalization/RoPE weights");
         for(int axis:axes) if(axis<0 || axis>=3) throw new IllegalArgumentException("Invalid QSA RoPE axis");
+        if(nativeDecode && (!fused || shape.dimension()!=256 || shape.heads()!=24 || shape.kvHeads()!=2 || shape.selectedCapacity()>2112))
+            throw new IllegalArgumentException("Native XQA requires the Flash-Next fused page geometry");
         var session=new DeviceSession(shape,qNorm,kNorm,iqNorm,ikNorm,axes,frequencies,fp8,fused);
         sessions.add(session);reserved+=session.bytes;return session;
     }
@@ -144,9 +150,20 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
                             .libraryTask("scoresGemm",FlashNextBf16FloatLibrary::gqaScores,capacity,shape.dimension(),shape.kvHeads(),control,packedKeys,packedQueries,alphaBeta,gemmScores)
                             .task("readScores",FlashNextQsaKernels::readScoreGemm,gemmScores,scores,control,shape.selectedCapacity(),capacity,shape.heads(),shape.kvHeads(),shape.dimension());
                 }
-                attentionGraph=add(attentionTasks
+                attentionTasks
                         .task("probabilities",FlashNextQsaKernels::probabilities,scores,probabilities,alpha,denominator,control,shape.heads(),shape.selectedCapacity(),tileCapacity,fused ? 1 : 0)
-                        .task("attend",FlashNextQsaKernels::attend,gathered,probabilities,alpha,denominator,gate,output,control,shape.dimension(),shape.kvHeads(),shape.heads(),shape.selectedCapacity(),tileCapacity,fused ? 1 : 0,attended)
+                        .task("attend",FlashNextQsaKernels::attend,gathered,probabilities,alpha,denominator,gate,output,control,shape.dimension(),shape.kvHeads(),shape.heads(),shape.selectedCapacity(),tileCapacity,fused ? 1 : 0,attended);
+                if(nativeDecode) {
+                    int capacity=(shape.selectedCapacity()+63)/64*64;
+                    reserve(FlashNextXqaLibrary.WORKSPACE_BYTES);
+                    var xqaQuery=bfloats(shape.queryWidth());var xqaKeys=bfloats(capacity*shape.kvWidth());var xqaValues=bfloats(xqaKeys.getSize());var xqaOutput=bfloats(shape.queryWidth());
+                    var pageTable=ints(capacity/64);for(int i=0;i<pageTable.getSize();i++) pageTable.set(i,i);
+                    attentionTasks.transferToDevice(DataTransferMode.FIRST_EXECUTION,xqaQuery,xqaKeys,xqaValues,xqaOutput,pageTable)
+                            .task("packXqa",FlashNextQsaKernels::packXqa,query,gathered,control,xqaQuery,xqaKeys,xqaValues,shape.kvWidth())
+                            .libraryTask("decodeXqa",FlashNextXqaLibrary::decode,capacity,shape.dimension(),shape.heads(),shape.kvHeads(),control,xqaQuery,xqaKeys,xqaValues,xqaOutput,pageTable)
+                            .task("readXqa",FlashNextQsaKernels::readXqa,xqaOutput,gate,output,attended,control);
+                }
+                attentionGraph=add(attentionTasks
                         .persistOnDevice(scores,probabilities,attended).transferToHost(DataTransferMode.EVERY_EXECUTION,output));
                 diagnosticGraph=add(new TaskGraph(producer+"SelectionRead").consumeFromDevice(producer,selected)
                         .task("copy",FlashNextQsaKernels::copySelection,selected,diagnostic).transferToHost(DataTransferMode.EVERY_EXECUTION,diagnostic));
@@ -225,7 +242,8 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
                 for(var pair:traceArrays.entrySet()) {
                     boolean compact=pair.getKey().equals("scores") || pair.getKey().equals("probabilities");
                     float[] row=new float[compact ? shape.heads()*count : pair.getValue().getSize()];
-                    for(int i=0;i<row.length;i++) row[i]=pair.getValue().get(compact ? i/count*shape.selectedCapacity()+i%count : i);result.put(pair.getKey(),row);
+                    for(int i=0;i<row.length;i++) row[i]=pair.getValue().get(compact ? i/count*shape.selectedCapacity()+i%count : i);
+                    String name=nativeDecode && control.get(3)==0 && compact ? "reference_"+pair.getKey() : pair.getKey();result.put(name,row);
                 }return result;
             }
         }

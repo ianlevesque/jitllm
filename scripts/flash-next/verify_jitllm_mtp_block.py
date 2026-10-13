@@ -189,7 +189,7 @@ def verify(model, device=1, trace_output=None, reference_replay_only=False, deco
     with tempfile.TemporaryDirectory(prefix="jitllm-mtp-block-") as directory:
         request = Path(directory) / "request.json"
         request.write_text(json.dumps({"tokens": tokens, "target_hidden": [h.float().cpu().tolist() for h in target_hidden], "draft_tokens": draft_tokens,
-                                       "device": device, "with_logits": True}))
+                                       "device": device, "with_logits": True, "native_qsa_decode": decode_reference == "staged"}))
         process = subprocess.run([sys.executable, str(SCRIPT_DIR / "jitllm_runtime.py"), "mtp-block-probe", str(model), str(request)], capture_output=True, text=True)
         if process.returncode:
             raise RuntimeError(process.stderr + "\n" + process.stdout)

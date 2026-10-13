@@ -475,8 +475,8 @@ changing the reference does not qualify speculative generation.
 Torch-owned CUDA buffers. Both 6 and 2,054 selected-token cases match the public
 FlashInfer API exactly with a 16 MiB workspace; the report records the module
 hash and FlashInfer version. This establishes the native entry point, buffer
-layout and stream-context mechanism for a Java/TornadoVM binding. That binding
-and bounded native workspace ownership remain to be implemented.
+layout and stream-context mechanism for the Java/TornadoVM binding now described
+below.
 
 `gpu-mtp-native-combine-staged.json` records the current staged-kernel gate:
 all five synthetic target-HC teacher inputs using real checkpoint weights pass;
@@ -487,6 +487,63 @@ failures/errors, three skips), 112 launcher tests and 109 matching source files.
 `gpu-api-native-combine-regression.json` preserves all three normal CUDA API
 callers and reset/replay with `[17, 478, 220]` and zero tracked native resources
 and checkpoint descriptors after close. It takes about 450 seconds.
+
+Native Java XQA decode is now implemented through TornadoVM library tasks and
+TVM-FFI's exported C ABI. It uses packed BF16 queries and gathered FP8-rounded KV,
+64-token pages, a static page table and a model-owned 16 MiB workspace per native
+context. The provider saves and restores the caller's stream context, validates
+prepared library hashes, and releases its workspace and library references at
+plan close. The normal CUDA target model now selects this decode path; initial
+fresh prefill keeps the existing staged sparse-prefill calculation. Optional
+decoder score/probability traces are labelled as reference intermediates because
+XQA owns its internal softmax.
+
+The shared MTP expert's three BF16 projections now use native cuBLAS GEMMs with
+one 32 MiB workspace per layer. The workspace is rebound after every caller
+stream change. Routed expert padding is reduced to 16 rows, keeping the complete
+MoE within its existing 128 MiB budget.
+
+`gpu-xqa-portable-boundary-parity.json` checks 1, 6, 63, 64, 65, 2,048, 2,051 and
+2,054 selected tokens against the actual staged FlashInfer API. All 16 cases
+across two library reloads are exact, including graph replay, another caller
+thread and zero native workspaces after close. `gpu-fp8-shared-gemm-thread-parity.json`
+repeats the three real FP8 MoE cases with the original tolerance, eviction,
+caller-thread replay and resource checks.
+
+`gpu-mtp-portable-native-xqa-parity.json` now **passes** all activation-stage
+checks for five synthetic teacher inputs and three chained drafts at the
+original rtol 0.016 / atol 0.004. The four checked greedy IDs match. Reset,
+rollback, injected-failure retry, frozen selection and native resource release
+pass; KV is never downloaded. The older failing reports above preserve the
+preceding diagnostics. Real target-derived draft trajectories and speculative
+API generation still require qualification.
+
+Prepare the pinned native dependencies with the CUDA Python environment:
+
+```bash
+python3 scripts/flash-next/prepare_jitllm_qsa.py
+```
+
+This requires FlashInfer 0.6.18, TVM-FFI 0.1.11, CMake, Ninja and a C++ compiler.
+The preparer builds TVM-FFI at `3c35034fd1026011736e19a4e0e1ed0f22058c42`
+with `TVM_FFI_BACKTRACE_ON_SEGFAULT=OFF`; the packaged library installs a signal
+handler that conflicts with HotSpot. It records source and binary provenance in
+`.local/jitllm-native-libs/qsa-provenance.json`, which the runtime wrapper verifies
+before exporting library paths and hashes. Set `JITLLM_QSA_PROVENANCE` to reuse a
+prepared manifest from another checkout. The binding currently requires SM120
+and the checkpoint's 24-query-head / two-KV-head / 256-dimension geometry. CUDA
+graph capture remains explicitly unqualified.
+
+`gpu-api-xqa-regression.json` now runs XQA in the normal CUDA target model.
+All three callers and reset/replay still emit `[17, 478, 220]`. The run executes
+96 XQA decodes and releases all XQA workspaces, native contexts/plans and
+checkpoint descriptors at close. It takes about 481 seconds in the sequential
+pipeline; efficient batching and layer-to-layer fusion remain required.
+
+`xqa-mtp-regression-tests.json` records 810 Java tests (zero failures/errors,
+three skips), 112 launcher tests and 113 matching source files. It distinguishes
+passing native block checks from the still-missing real target-derived MTP
+qualification, acceptance loop and full-context concurrent capacity checks.
 
 Target verification/acceptance, rejection correction, stochastic sampling,
 real target-derived draft trajectories and batched verification are still

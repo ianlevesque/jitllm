@@ -6,6 +6,7 @@ import java.util.concurrent.*;
 import org.beehive.jitllm.api.*;
 import org.beehive.jitllm.backend.tornado.FlashNextNvfp4Library;
 import org.beehive.jitllm.backend.tornado.FlashNextBf16FloatLibrary;
+import org.beehive.jitllm.backend.tornado.FlashNextXqaLibrary;
 import org.beehive.jitllm.runtime.backend.BackendId;
 import org.beehive.jitllm.runtime.policy.StorageOptions;
 import org.beehive.jitllm.server.Json;
@@ -77,10 +78,13 @@ public final class FlashNextGpuApiProbe {
         } finally {for(var session:sessions) session.close();model.close();}
         model.close();long after=descriptors(checkpointFiles);var nativeStats=FlashNextNvfp4Library.statistics();
         var floatStats=FlashNextBf16FloatLibrary.statistics();
+        var xqaStats=FlashNextXqaLibrary.statistics();
         if(after!=before || nativeStats.contexts()!=0 || nativeStats.plans()!=0 || FlashNextNvfp4Library.registeredWeights()!=0 || nativeStats.calls()==0)
             throw new AssertionError("CUDA API native/checkpoint resources leaked or did not execute");
         if(floatStats.contexts()!=0 || floatStats.plans()!=0 || floatStats.calls()==0)
             throw new AssertionError("CUDA API HC/QSA FP32 GEMMs leaked resources or did not execute");
+        if(xqaStats.contexts()!=0 || xqaStats.calls()==0)
+            throw new AssertionError("CUDA API XQA contexts leaked or did not execute");
         var report=new LinkedHashMap<String,Object>();report.put("passed",true);report.put("execution",prepared);report.put("context_length",context);
         report.put("concurrent_callers",3);report.put("device_execution_serialized",true);report.put("fourth_session_refused",true);
         report.put("close_with_live_sessions_refused",true);report.put("explicit_fp16_refused",true);report.put("reset_replay_exact",true);report.put("results",results);
@@ -88,6 +92,7 @@ public final class FlashNextGpuApiProbe {
         report.put("native_gemms",nativeStats.calls());report.put("native_contexts_after_close",nativeStats.contexts());report.put("native_plans_after_close",nativeStats.plans());
         report.put("expert_registrations_after_close",FlashNextNvfp4Library.registeredWeights());report.put("elapsed_seconds",(System.nanoTime()-start)/1e9);
         report.put("bf16_float_gemms",floatStats.calls());report.put("bf16_float_contexts_after_close",floatStats.contexts());report.put("bf16_float_plans_after_close",floatStats.plans());
+        report.put("native_xqa_calls",xqaStats.calls());report.put("native_xqa_contexts_after_close",xqaStats.contexts());report.put("native_xqa_workspace_bytes_after_close",xqaStats.workspaceBytes());
         report.put("scope","Three API callers serialized on shared device workspaces, 4096-token capacity and one short prompt/reset. Full-context concurrent capacity, batching, MTP, vision and broader chat replay remain unqualified.");
         System.out.println(Json.write(report));
     }

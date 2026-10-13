@@ -2,3 +2,5 @@ org.beehive.jitllm.backend.tornado.FlashNextNvfp4Library
 org.beehive.jitllm.backend.tornado.FlashNextFp8Library
 org.beehive.jitllm.backend.tornado.FlashNextRmsNormLibrary
 org.beehive.jitllm.backend.tornado.FlashNextBf16FloatLibrary
+org.beehive.jitllm.backend.tornado.FlashNextXqaLibrary
+org.beehive.jitllm.backend.tornado.FlashNextSharedBf16Library

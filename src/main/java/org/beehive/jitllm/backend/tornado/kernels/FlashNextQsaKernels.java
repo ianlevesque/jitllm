@@ -178,6 +178,20 @@ public final class FlashNextQsaKernels {
             if(token<control.get(2)) {float value=input.get(group*16*gemmCapacity+within*rows+token);scores.set(i,control.get(3)==1 ? value : value/(float)TornadoMath.sqrt((double)(dimension)));}
         }
     }
+    public static void packXqa(FloatArray query,BFloat16Array gathered,IntArray control,BFloat16Array packedQuery,BFloat16Array keys,BFloat16Array values,int kvWidth) {
+        for(@Parallel int i=0;i<keys.getSize();i++) if(control.get(3)==0) {
+            int token=i/kvWidth,column=i%kvWidth;
+            keys.set(i,token<control.get(2) ? gathered.get(token*2*kvWidth+column) : (short)0);
+            values.set(i,token<control.get(2) ? gathered.get(token*2*kvWidth+kvWidth+column) : (short)0);
+        }
+        for(@Parallel int i=0;i<packedQuery.getSize();i++) if(control.get(3)==0) packedQuery.set(i,bits(query.get(i)));
+    }
+    public static void readXqa(BFloat16Array input,FloatArray gate,FloatArray output,FloatArray attended,IntArray control) {
+        for(@Parallel int i=0;i<output.getSize();i++) if(control.get(3)==0) {
+            float value=unbits(input.get(i));attended.set(i,value);
+            float sigmoid=(float)(1/(1+TornadoMath.exp(-(double)gate.get(i))));output.set(i,bf(value*sigmoid));
+        }
+    }
     public static void probabilities(FloatArray scores,FloatArray probabilities,FloatArray alpha,FloatArray denominator,IntArray control,int heads,int capacity,int tileCapacity,int fused) {
         for(@Parallel int head=0;head<heads;head++) {
             int count=control.get(2);

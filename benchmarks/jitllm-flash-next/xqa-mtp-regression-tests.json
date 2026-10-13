@@ -1,0 +1,30 @@
+{
+  "java_suite": {
+    "tests": 810,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "launcher_tests": 112,
+  "matching_overlay_clone_fork_files": 113,
+  "native_xqa_boundary_cases": 16,
+  "native_xqa_boundary_cases_exact": true,
+  "native_xqa_caller_thread_replay_exact": true,
+  "native_xqa_same_jvm_reload_passed": true,
+  "native_xqa_workspace_bytes_per_context": 16777216,
+  "tvm_ffi_ref": "3c35034fd1026011736e19a4e0e1ed0f22058c42",
+  "tvm_ffi_segfault_handler_disabled": true,
+  "native_mtp_synthetic_teacher_steps": 5,
+  "native_mtp_chained_draft_steps": 3,
+  "native_mtp_original_activation_gate_passed": true,
+  "native_mtp_reset_rollback_failure_retry_exact": true,
+  "native_mtp_resources_after_close": 0,
+  "normal_cuda_api_passed": true,
+  "normal_cuda_api_callers": 3,
+  "normal_cuda_api_reset_replay_exact": true,
+  "normal_cuda_api_xqa_calls": 96,
+  "normal_cuda_api_elapsed_seconds": 481.296603704,
+  "real_target_derived_mtp_qualified": false,
+  "target_verification_acceptance_loop_implemented": false,
+  "full_context_concurrent_capacity_qualified": false
+}

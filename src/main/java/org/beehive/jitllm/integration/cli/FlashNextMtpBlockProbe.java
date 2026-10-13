@@ -30,7 +30,7 @@ public final class FlashNextMtpBlockProbe {
         int vocabulary=Qwen4Tokenizer.load(directory).tokenCount();
         var index=SafeTensorIndex.open(directory,name->name.startsWith("mtp.") || name.equals("model.language_model.embed_tokens.weight") || name.equals("lm_head.weight"));
         try(var reader=new PagedTensorReader(1048576,4096);var matrices=new FlashNextMatrixExecutor(device,2L<<30);
-            var layers=new FlashNextLayerExecutor(device,8,4L<<20,true);var qsa=new FlashNextQsaExecutor(device,8,64L<<20);
+            var layers=new FlashNextLayerExecutor(device,8,4L<<20,true);var qsa=new FlashNextQsaExecutor(device,8,Boolean.TRUE.equals(request.get("native_qsa_decode")) ? 128L<<20 : 64L<<20,Boolean.TRUE.equals(request.get("native_qsa_decode")));
             var experts=new FlashNextFp8MoeExecutor(device,128L<<20);var fusion=new FlashNextMtpFusionExecutor(device,128L<<20);
             var block=new Qwen4MtpBlock(config,index,reader,new ModelOptMatrix(index,reader,"model.language_model.embed_tokens",matrices),
                     new ModelOptMatrix(index,reader,"lm_head",matrices),vocabulary,8,matrices,layers,qsa,experts,fusion);
@@ -68,12 +68,14 @@ public final class FlashNextMtpBlockProbe {
             var expired=state.snapshot();expired.close();try {state.restore(expired);throw new AssertionError("Disposed MTP snapshot accepted");} catch(IllegalArgumentException expected) {}
             var gpuQsa=qsa.statistics();var gpuExperts=experts.statistics();var gpuFusion=fusion.statistics();
             state.close();block.close();matrices.close();layers.close();qsa.close();experts.close();fusion.close();
-            if(FlashNextBf16FloatLibrary.statistics().contexts()!=0 || FlashNextBf16FloatLibrary.statistics().plans()!=0 || qsa.statistics().reservedBytes()!=0 || experts.statistics().residentBytes()!=0 || fusion.statistics().residentBytes()!=0 || layers.statistics().residentBytes()!=0
+            if(FlashNextSharedBf16Library.statistics().contexts()!=0 || FlashNextXqaLibrary.statistics().contexts()!=0 || FlashNextBf16FloatLibrary.statistics().contexts()!=0 || FlashNextBf16FloatLibrary.statistics().plans()!=0 || qsa.statistics().reservedBytes()!=0 || experts.statistics().residentBytes()!=0 || fusion.statistics().residentBytes()!=0 || layers.statistics().residentBytes()!=0
                     || FlashNextRmsNormLibrary.statistics().contexts()!=0 || FlashNextFp8Library.statistics().contexts()!=0 || FlashNextFp8Library.statistics().plans()!=0 || FlashNextFp8Library.registeredWeights()!=0) throw new AssertionError("MTP native resources leaked");
             var result=new LinkedHashMap<String,Object>();result.put("teacher",teacher);result.put("drafts",drafts);result.put("rollback_exact",true);result.put("reset_exact",true);result.put("failure_retry_exact",true);
             result.put("draft_steps",3);result.put("native_calls",FlashNextFp8Library.statistics().calls());result.put("moe_forwards",gpuExperts.forwards());
             result.put("qsa_forwards",gpuQsa.forwards());result.put("qsa_restores",gpuQsa.restores());result.put("kv_download_bytes",gpuQsa.kvHostDownloadBytes());
             result.put("fusion_forwards",gpuFusion.forwards());result.put("fusion_peak_bytes",gpuFusion.peakBytes());result.put("moe_peak_bytes",gpuExperts.peakBytes());result.put("resources_after_close",0);
+            result.put("native_xqa_calls",FlashNextXqaLibrary.statistics().calls());result.put("native_xqa_contexts_after_close",FlashNextXqaLibrary.statistics().contexts());
+            result.put("native_shared_bf16_calls",FlashNextSharedBf16Library.statistics().calls());result.put("native_shared_bf16_contexts_after_close",FlashNextSharedBf16Library.statistics().contexts());
             System.out.println(Json.write(result));
         }
     }

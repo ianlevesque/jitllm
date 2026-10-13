@@ -1,5 +1,22 @@
 """Private unversioned CUDA aliases for the pinned SDK's FFM library bindings."""
 from pathlib import Path
+import hashlib
+import json
+
+
+def native_qsa_environment(provenance: Path, env: dict) -> None:
+    if not provenance.is_file():
+        return
+    data = json.loads(provenance.read_text())
+    if data.get("backtrace_on_segfault") is not False or data.get("tvm_ffi_ref") != "3c35034fd1026011736e19a4e0e1ed0f22058c42":
+        raise RuntimeError("Native QSA needs the pinned TVM-FFI build with SIGSEGV handling disabled")
+    for prefix, variable in [("tvm_ffi", "JITLLM_TVM_FFI"), ("xqa", "JITLLM_FLASHINFER_XQA")]:
+        path = Path(data[prefix + "_library"])
+        digest = data[prefix + "_sha256"]
+        if not path.is_absolute() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise RuntimeError(f"Prepared native QSA library changed: {path}")
+        env[variable + "_LIBRARY"] = str(path)
+        env[variable + "_SHA256"] = digest
 
 
 def prepare_native_aliases(native: Path, directory: Path) -> Path:
