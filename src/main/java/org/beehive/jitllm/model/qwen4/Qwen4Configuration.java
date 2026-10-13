@@ -55,6 +55,15 @@ public record Qwen4Configuration(int dim, int hiddenDim, int numberOfLayers,
     public int linearQkvDim() { return Math.addExact(2 * linearKeyHeads * linearKeyDim, linearValueHeads * linearValueDim); }
     public int pleHeads() { return (ngramSize - 1) * headsPerNgram; }
     public int pleRowWidth() { return pleEmbedDim / pleHeads(); }
+    /** One shared NextN block, full attention and no PLE; trunk configuration is immutable. */
+    public Qwen4Configuration mtpConfiguration() {
+        if(mtpLayers!=1) throw new IllegalStateException("Flash-Next requires one shared MTP block");
+        return new Qwen4Configuration(dim,hiddenDim,1,numberOfHeads,numberOfKeyValueHeads,headSize,vocabularySize,
+                contextLengthModel,contextLength,rmsNormEps,ropeTheta,rotaryDimensions,hcCount,hcLowrank,experts,expertsPerToken,
+                sharedExpertDim,normalizeTopK,linearKeyHeads,linearValueHeads,linearKeyDim,linearValueDim,linearConvKernel,
+                ngramSize,headsPerNgram,pleEmbedDim,pleConvKernel,List.of(),List.of("full_attention"),indexerBudget,
+                indexerCompressRatio,indexerHeadDim,indexerHeads,0,eosToken,mropeSections,mropeInterleaved);
+    }
     @Override public String quantization() { return "NVFP4"; }
     @Override public DataType activationType() { return DataType.BF16; }
     @Override public int numberOfHeadsKey() { return headSize; }

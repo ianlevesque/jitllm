@@ -353,9 +353,66 @@ normal intermediate downloads and all resources after close are zero.
 and three skips, 112 passing launcher tests, and 97 matching source files
 across the launcher overlay, pinned clone and fork checkout.
 
-These are expert subsystem checks. The complete MTP block, draft-three token
-verification, frozen QSA index reuse and accepted/rejected-prefix rollback are
+These are expert subsystem checks. The experimental block and frozen-index state support below are implemented;
+full block numerical qualification and draft-three target verification are
 still required. The normal model/API does not yet perform speculative decoding.
+
+## Experimental MTP block and frozen sparse drafts
+
+The shared text MTP block now fuses the successor-token embedding with the
+preceding target HC state, runs its attention/HC/block-FP8 MoE, and returns both
+the collapsed hidden vector and all 10,240 HC values for the next proposal.
+It borrows the target embedding, LM head and page reader. Its derived immutable
+configuration has one full-attention layer and no PLE. This block is available
+through `Qwen4CpuEngine.newMtpBlock`; the normal API still uses target-only decoding.
+
+Native input fusion normalizes all HC branches together, runs two BF16 GEMMs,
+and adds the embedding projection to each branch on CUDA. CUDA 13 NVRTC and
+Driver API bindings implement the staged SM120 CuTe normalization geometry,
+ordered local sums, ascending warp reductions and explicit approximate rsqrt.
+CuBLAS plans stay with their caller thread and retain a 32 MiB workspace.
+`gpu-mtp-fusion-parity.json` checks batches 1, 3, 33 and 128 against the actual
+staged normalizer and PyTorch BF16 projections: all four outputs are exact,
+including replay and another caller thread. Native modules and tracked buffers
+return to zero. The peak stays within the 128 MiB fusion cache budget.
+
+Teacher extension captures its final sparse selection. Three draft calls reuse
+that selection and append only newly drafted causal positions; indexer projection,
+compression and sparse scoring are skipped. Extra selection capacity includes
+three tail entries. All request metadata and QSA prefixes support snapshot,
+accepted-prefix restoration, reset and failure rollback. Indexed extension after
+an unrestored draft prefix is refused. State snapshots reject wrong owners,
+released checkpoints, future prefixes and pre-reset generations.
+
+`gpu-qsa-draft-boundaries.json` captures 2,051 selected entries at position 2,063,
+then drafts across a compression/page boundary with capacity 2,054. Constant-V
+attention, selection preservation and rollback/replay are exact; no KV or draft
+indexer results are downloaded. It also checks overflow, invalid future indices,
+foreign/disposed/stale checkpoints and zero resources after close.
+`gpu-qsa-mtp-regression.json` repeats the existing 12-step real-layer fresh-prefill
+check with the extended QSA interface and passes its original tolerance.
+
+Full MTP numerical qualification remains **incomplete**.
+`gpu-mtp-block-unqualified.json` records five synthetic target-HC teacher inputs
+and three chained drafts using real checkpoint weights. All four checked greedy
+IDs match the staged kernels, and native replay, reset, injected-failure retry,
+fourth-step refusal and resource release pass. The independent activation
+comparison still fails 45 stage checks at rtol 0.016 / atol 0.004. The staged
+reference itself replays exactly in `mtp-reference-replay.json`. Optional stage
+traces identify HC/attention differences that propagate through the block.
+An experimental grouped CUDA HC normalizer is available through the layer
+executor's fourth constructor argument; the normal target provider keeps its
+previous normalization path while MTP qualification continues.
+
+`mtp-regression-tests.json` records 810 Java tests (no failures/errors, three
+skips), 112 launcher tests and 106 matching source files.
+`gpu-api-mtp-regression.json` repeats the three-caller normal CUDA API case and
+reset/replay; all four results remain `[17, 478, 220]`, resources return to zero,
+and the run takes about 267 seconds. This remains a short 4,096-capacity test.
+
+Target verification/acceptance, rejection correction, stochastic sampling,
+real target-derived draft trajectories and batched verification are still
+required. The block checks do not establish working speculative API generation.
 
 ## Normal CUDA model/API integration
 
@@ -507,6 +564,9 @@ python3 scripts/flash-next/jitllm_runtime.py bf16-batch-probe MODEL_DIR BF16_BAT
 python3 scripts/flash-next/jitllm_runtime.py nvfp4-batch-probe MODEL_DIR NVFP4_BATCH_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py fp8-batch-probe MODEL_DIR FP8_BATCH_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py fp8-moe-probe MODEL_DIR FP8_MOE_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py mtp-fusion-probe MODEL_DIR MTP_FUSION_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py mtp-block-probe MODEL_DIR MTP_BLOCK_REQUEST.json
+python3 scripts/flash-next/jitllm_runtime.py qsa-draft-probe --device 1
 python3 scripts/flash-next/jitllm_runtime.py moe-probe MODEL_DIR MOE_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-probe MODEL_DIR QSA_REQUEST.json
 python3 scripts/flash-next/jitllm_runtime.py qsa-paging-probe --device 1
@@ -548,8 +608,8 @@ and an optional `cache_bytes` budget.
 2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
    including grouped native NVFP4 projections and complete FP8 draft-layer integration. The normal CUDA
    model provider now dispatches through its owned plans; production serving remains to be qualified.
-3. Add the complete MTP/NextN block and draft-three verification, QSA index
-   reuse, and rejection/accepted-prefix rollback for every request state.
+3. Qualify the MTP/NextN block and implement draft-three target verification,
+   rejection correction and accepted-prefix rollback across target and draft states.
 4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
    prefill/chunking, memory planning and three-request scheduling. Configuration
    and admission checks do not prove full-context/concurrent inference.

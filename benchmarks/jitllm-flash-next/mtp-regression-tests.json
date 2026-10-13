@@ -1,0 +1,23 @@
+{
+  "java_suite": {
+    "tests": 810,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "launcher_tests": 112,
+  "matching_overlay_clone_fork_files": 106,
+  "fusion_batches": [
+    1,
+    3,
+    33,
+    128
+  ],
+  "fusion_outputs_exact": true,
+  "frozen_qsa_boundary_check_passed": true,
+  "full_mtp_activation_comparison_passed": false,
+  "target_verification_acceptance_loop_implemented": false,
+  "normal_gpu_api_passed": true,
+  "normal_gpu_api_concurrent_callers": 3,
+  "normal_gpu_api_reset_replay_exact": true
+}

@@ -41,11 +41,13 @@ def main():
         commands.add_parser(name)
     paging=commands.add_parser("qsa-paging-probe")
     paging.add_argument("--device",type=int,default=1)
+    draft=commands.add_parser("qsa-draft-probe")
+    draft.add_argument("--device",type=int,default=1)
     probe = commands.add_parser("probe")
     probe.add_argument("model", type=Path)
     probe.add_argument("--matrix", default="model.language_model.layers.0.mlp.experts.0.gate_proj")
     probe.add_argument("--device", type=int, default=1, help="TornadoVM device ordinal; inspect devices first")
-    for name in ("generate", "model-probe", "cache-probe", "api-probe", "gpu-api-probe", "recurrent-probe", "hc-ple-probe", "bf16-batch-probe", "nvfp4-batch-probe", "fp8-batch-probe", "fp8-moe-probe", "moe-probe", "qsa-probe"):
+    for name in ("generate", "model-probe", "cache-probe", "api-probe", "gpu-api-probe", "recurrent-probe", "hc-ple-probe", "bf16-batch-probe", "nvfp4-batch-probe", "fp8-batch-probe", "fp8-moe-probe", "mtp-fusion-probe", "mtp-block-probe", "moe-probe", "qsa-probe"):
         runner = commands.add_parser(name)
         runner.add_argument("model", type=Path)
         if name != "api-probe":
@@ -59,16 +61,16 @@ def main():
         subprocess.run([str(ROOT / "mvnw"), "-B", *options], cwd=ROOT, env=env, check=True)
     elif args.command == "devices":
         subprocess.run([str(sdk / "bin/tornado"), "--devices"], env=env, check=True)
-    elif args.command == "qsa-paging-probe":
+    elif args.command in {"qsa-paging-probe", "qsa-draft-probe"}:
         subprocess.run([str(sdk / "bin/tornado"), "--jvm", "--enable-preview --add-modules=jdk.incubator.vector -Xmx1g -Dtornado.device.memory=1GB",
                         "--classpath", str(ROOT / "target/classes"),
-                        "org.beehive.jitllm.integration.cli.FlashNextQsaPagingProbe",str(args.device)],env=env,check=True)
+                        "org.beehive.jitllm.integration.cli."+("FlashNextQsaPagingProbe" if args.command=="qsa-paging-probe" else "FlashNextQsaDraftProbe"),str(args.device)],env=env,check=True)
     else:
         if args.command == "probe":
             main_class = "FlashNextNvfp4Probe"
             inputs = [str(args.model), args.matrix, str(args.device)]
         else:
-            main_class = {"nvfp4-batch-probe":"FlashNextNvfp4BatchProbe", "fp8-batch-probe":"FlashNextFp8BatchProbe", "fp8-moe-probe":"FlashNextFp8MoeProbe", "moe-probe":"FlashNextMoeProbe", "generate": "FlashNextCpuGenerate", "model-probe": "FlashNextModelProbe",
+            main_class = {"nvfp4-batch-probe":"FlashNextNvfp4BatchProbe", "fp8-batch-probe":"FlashNextFp8BatchProbe", "fp8-moe-probe":"FlashNextFp8MoeProbe", "mtp-fusion-probe":"FlashNextMtpFusionProbe", "mtp-block-probe":"FlashNextMtpBlockProbe", "moe-probe":"FlashNextMoeProbe", "generate": "FlashNextCpuGenerate", "model-probe": "FlashNextModelProbe",
                           "cache-probe": "FlashNextCacheProbe", "api-probe": "FlashNextApiProbe", "gpu-api-probe": "FlashNextGpuApiProbe", "recurrent-probe": "FlashNextDeltaNetProbe", "hc-ple-probe": "FlashNextHcPleProbe", "bf16-batch-probe": "FlashNextBf16BatchProbe", "qsa-probe": "FlashNextQsaProbe"}[args.command]
             inputs = [str(args.model)]
             if args.command != "api-probe":

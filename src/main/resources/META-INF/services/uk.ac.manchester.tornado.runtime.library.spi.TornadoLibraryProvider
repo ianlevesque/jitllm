@@ -1,2 +1,3 @@
 org.beehive.jitllm.backend.tornado.FlashNextNvfp4Library
 org.beehive.jitllm.backend.tornado.FlashNextFp8Library
+org.beehive.jitllm.backend.tornado.FlashNextRmsNormLibrary

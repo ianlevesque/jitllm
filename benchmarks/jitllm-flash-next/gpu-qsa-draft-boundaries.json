@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "captured_length": 2063,
+  "captured_selection": 2051,
+  "selected_capacity": 2054,
+  "draft_steps": 3,
+  "rollback_replay_exact": true,
+  "draft_index_download_bytes": 0,
+  "pages_reached": 2,
+  "kv_download_bytes": 0,
+  "kernel_ns": 1943166379,
+  "resources_after_close": 0,
+  "sglang_reference_commit": "745de73ba3c136b6f99b7a3e2177ed1a8eef4a56"
+}

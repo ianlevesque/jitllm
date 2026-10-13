@@ -1,0 +1,68 @@
+{
+  "passed": true,
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "reference": "Staged CUDA Gemma RMSNorm and PyTorch BF16 linear fusion",
+  "hidden_norm_width": 10240,
+  "rtol": 0.008,
+  "atol": 0.0001,
+  "cases": [
+    {
+      "rows": 1,
+      "replay_exact": true,
+      "caller_thread_exact": true,
+      "peak_bytes": 120029600,
+      "builds": 2,
+      "evictions": 0,
+      "kernel_ns": 106206579,
+      "native_norm_calls": 6,
+      "native_norm_contexts_after_close": 0,
+      "resident_bytes_after_close": 0,
+      "max_absolute_error": 0.0,
+      "exact_fraction": 1.0
+    },
+    {
+      "rows": 3,
+      "replay_exact": true,
+      "caller_thread_exact": true,
+      "peak_bytes": 120807840,
+      "builds": 2,
+      "evictions": 0,
+      "kernel_ns": 92287901,
+      "native_norm_calls": 6,
+      "native_norm_contexts_after_close": 0,
+      "resident_bytes_after_close": 0,
+      "max_absolute_error": 0.0,
+      "exact_fraction": 1.0
+    },
+    {
+      "rows": 33,
+      "replay_exact": true,
+      "caller_thread_exact": true,
+      "peak_bytes": 132481440,
+      "builds": 2,
+      "evictions": 0,
+      "kernel_ns": 92523776,
+      "native_norm_calls": 6,
+      "native_norm_contexts_after_close": 0,
+      "resident_bytes_after_close": 0,
+      "max_absolute_error": 0.0,
+      "exact_fraction": 1.0
+    },
+    {
+      "rows": 128,
+      "replay_exact": true,
+      "caller_thread_exact": true,
+      "peak_bytes": 84723920,
+      "builds": 2,
+      "evictions": 1,
+      "kernel_ns": 109765709,
+      "native_norm_calls": 6,
+      "native_norm_contexts_after_close": 0,
+      "resident_bytes_after_close": 0,
+      "max_absolute_error": 0.0,
+      "exact_fraction": 1.0
+    }
+  ],
+  "sglang_reference_commit": "745de73ba3c136b6f99b7a3e2177ed1a8eef4a56",
+  "native_normalizer": "CuTe SM120 ordered local sums, ascending warp reductions, explicit rsqrt"
+}

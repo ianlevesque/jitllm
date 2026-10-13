@@ -113,6 +113,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         }
     }
     private final Qwen4Configuration config;
+    private final Path checkpointDirectory;
     private final Qwen4Tokenizer tokenizer;
     private final PagedTensorReader reader;
     private final ModelOptMatrix embedding,lmHead;
@@ -121,6 +122,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
     private final Set<Sequence> sequences=Collections.newSetFromMap(new IdentityHashMap<>());
     private final List<Qwen4CpuLayers.HyperConnection> hyperResources=new ArrayList<>();
     private final List<Qwen4Moe> moeResources=new ArrayList<>();
+    private final List<Qwen4MtpBlock> mtpResources=new ArrayList<>();
     private boolean closed;
 
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded) throws IOException {
@@ -139,6 +141,7 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         this(directory,context,pageBudget,onLoaded,executor,recurrentExecutor,layerExecutor,qsaExecutor,null);
     }
     public Qwen4CpuEngine(Path directory,int context,long pageBudget,BiConsumer<Integer,Integer> onLoaded,MatrixExecutor executor,DeltaNetExecutor recurrentExecutor,FlashNextLayerExecutor layerExecutor,QsaExecutor qsaExecutor,MoeExecutor moeExecutor) throws IOException {
+        checkpointDirectory=directory.toAbsolutePath().normalize();
         config=Qwen4Configuration.load(directory,context);
         tokenizer=Qwen4Tokenizer.load(directory);
         reader=new PagedTensorReader(pageBudget,4096);
@@ -173,6 +176,11 @@ public final class Qwen4CpuEngine implements AutoCloseable {
     public Qwen4Tokenizer tokenizer() { return tokenizer; }
     public synchronized Sequence newSequence() { if(closed) throw new IllegalStateException("Engine is closed");var sequence=new Sequence();sequences.add(sequence);return sequence; }
     public PagedTensorReader.Statistics statistics() { return reader.statistics(); }
+    public synchronized Qwen4MtpBlock newMtpBlock(int checkpointCapacity,MatrixExecutor matrices,FlashNextLayerExecutor layers,QsaExecutor qsa,MoeExecutor experts,org.beehive.jitllm.inference.op.MtpFusionExecutor fusion) throws IOException {
+        if(closed) throw new IllegalStateException("Engine is closed");
+        var block=new Qwen4MtpBlock(config,SafeTensorIndex.open(checkpointDirectory,name->name.startsWith("mtp.")),reader,embedding,lmHead,tokenizer.tokenCount(),checkpointCapacity,matrices,layers,qsa,experts,fusion);
+        mtpResources.add(block);return block;
+    }
     public Output forward(int token,Sequence sequence,boolean withLogits,BiConsumer<Integer,float[]> onLayer) throws IOException {
         if(closed || sequence.closed || sequence.owner!=this || token<0 || token>=tokenizer.tokenCount() || sequence.position>=config.contextLength())
             throw new IllegalArgumentException("Invalid model input/state/context");
@@ -216,6 +224,8 @@ public final class Qwen4CpuEngine implements AutoCloseable {
         for(var sequence:List.copyOf(sequences)) try {sequence.close();} catch(IOException closing) {
             if(failure==null) failure=closing;else failure.addSuppressed(closing);
         }
+        for(var block:mtpResources) try {block.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
+        mtpResources.clear();
         for(var resource:hyperResources) try {resource.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         hyperResources.clear();
         for(var resource:moeResources) try {resource.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}

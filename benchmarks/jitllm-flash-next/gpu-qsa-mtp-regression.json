@@ -1,0 +1,174 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "fused_precision": true,
+  "fresh_prefill": true,
+  "attention_reference": "SGLang CUDA sparse GQA prefill",
+  "gate_reference": "SGLang CUDA fused_sigmoid_mul",
+  "kv_dtype": "fp8_e4m3",
+  "steps": 12,
+  "positions": [
+    [
+      0,
+      0,
+      0
+    ],
+    [
+      1,
+      0,
+      1
+    ],
+    [
+      2,
+      1,
+      2
+    ],
+    [
+      3,
+      1,
+      3
+    ],
+    [
+      4,
+      2,
+      4
+    ],
+    [
+      5,
+      2,
+      5
+    ],
+    [
+      6,
+      3,
+      6
+    ],
+    [
+      7,
+      3,
+      0
+    ],
+    [
+      8,
+      4,
+      1
+    ],
+    [
+      9,
+      4,
+      2
+    ],
+    [
+      10,
+      5,
+      3
+    ],
+    [
+      11,
+      5,
+      4
+    ]
+  ],
+  "compression_ratio": 4,
+  "token_budget": 2048,
+  "rollback_exact": true,
+  "reset_exact": true,
+  "cache_resident_bytes": 8192,
+  "rtol": 0.016,
+  "atol": 0.004,
+  "comparisons": [
+    {
+      "step": 0,
+      "max_absolute_error": 2.384185791015625e-07,
+      "rmse": 4.712160883713068e-09,
+      "exact_fraction": 0.9996093511581421,
+      "selected_tokens": 1
+    },
+    {
+      "step": 1,
+      "max_absolute_error": 0.0001220703125,
+      "rmse": 2.6973982585332124e-06,
+      "exact_fraction": 0.999218761920929,
+      "selected_tokens": 2
+    },
+    {
+      "step": 2,
+      "max_absolute_error": 0.0001220703125,
+      "rmse": 2.431401981084491e-06,
+      "exact_fraction": 0.999218761920929,
+      "selected_tokens": 3
+    },
+    {
+      "step": 3,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.00028241975815035403,
+      "exact_fraction": 0.951953113079071,
+      "selected_tokens": 4
+    },
+    {
+      "step": 4,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.00023999996483325958,
+      "exact_fraction": 0.9671875238418579,
+      "selected_tokens": 5
+    },
+    {
+      "step": 5,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.00021527966600842774,
+      "exact_fraction": 0.9546874761581421,
+      "selected_tokens": 6
+    },
+    {
+      "step": 6,
+      "max_absolute_error": 0.00390625,
+      "rmse": 0.00021380414546001703,
+      "exact_fraction": 0.9476562738418579,
+      "selected_tokens": 7
+    },
+    {
+      "step": 7,
+      "max_absolute_error": 0.0009765625,
+      "rmse": 1.9301010979688726e-05,
+      "exact_fraction": 0.999218761920929,
+      "selected_tokens": 8
+    },
+    {
+      "step": 8,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.00022302658180706203,
+      "exact_fraction": 0.974609375,
+      "selected_tokens": 9
+    },
+    {
+      "step": 9,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.0003772884083446115,
+      "exact_fraction": 0.935546875,
+      "selected_tokens": 10
+    },
+    {
+      "step": 10,
+      "max_absolute_error": 0.0078125,
+      "rmse": 0.0004973920877091587,
+      "exact_fraction": 0.8832031488418579,
+      "selected_tokens": 11
+    },
+    {
+      "step": 11,
+      "max_absolute_error": 0.00390625,
+      "rmse": 0.00029299594461917877,
+      "exact_fraction": 0.9390624761581421,
+      "selected_tokens": 12
+    }
+  ],
+  "gpu_qsa": {
+    "restores": 12,
+    "index_host_download_bytes": 205100,
+    "kv_host_download_bytes": 0,
+    "reserved_bytes_after_close": 0,
+    "kernel_ns": 109153975,
+    "forwards": 25
+  },
+  "gpu_projections": true,
+  "sglang_reference_commit": "745de73ba3c136b6f99b7a3e2177ed1a8eef4a56"
+}

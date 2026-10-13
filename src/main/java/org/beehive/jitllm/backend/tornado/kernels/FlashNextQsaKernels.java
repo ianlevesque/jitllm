@@ -41,18 +41,24 @@ public final class FlashNextQsaKernels {
     }
     public static void prepareIndexer(FloatArray projected,FloatArray pending,IntArray positions,
                                        FloatArray qNorm,IntArray axes,FloatArray frequencies,FloatArray query,
-                                       FloatArray pooled,int width,int ratio,float epsilon,int fused) {
+                                       FloatArray pooled,int width,int ratio,float epsilon,int fused,IntArray control) {
         for(@Parallel int head=0;head<query.getSize()/width;head++)
+            if(control.get(5)==0)
             normalizedRope(projected,head*width,qNorm,query,head*width,positions,0,axes,frequencies,width,epsilon,fused);
         for(@Parallel int i=0;i<width;i++) {
+            if(control.get(5)==0) {
             float sum=0;for(int row=0;row<ratio;row++) sum+=pending.get(row*width+i);
             pooled.set(i,fused==1 ? sum/ratio : bf(sum/ratio));
+            }
         }
     }
     public static void normalizePooled(FloatArray pooled,FloatArray weights,FloatArray output,IntArray firstPosition,
-                                       IntArray axes,FloatArray frequencies,int width,float epsilon,int fused) {
+                                       IntArray axes,FloatArray frequencies,int width,float epsilon,int fused,IntArray control) {
         // One compressed head. Pooling is a preceding task, so all lanes have completed.
-        for(@Parallel int head=0;head<1;head++) normalizedRope(pooled,0,weights,output,0,firstPosition,0,axes,frequencies,width,epsilon,fused);
+        for(@Parallel int head=0;head<1;head++) if(control.get(5)==0) normalizedRope(pooled,0,weights,output,0,firstPosition,0,axes,frequencies,width,epsilon,fused);
+    }
+    public static void frozenSelection(IntArray input,IntArray selected) {
+        for(@Parallel int i=0;i<selected.getSize();i++) selected.set(i,input.get(i));
     }
     private static int fp8(float value,FloatArray table) {
         int sign=(Float.floatToRawIntBits(value)>>>24)&128;

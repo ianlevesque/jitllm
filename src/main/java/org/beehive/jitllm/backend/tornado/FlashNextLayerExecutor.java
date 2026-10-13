@@ -23,12 +23,17 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
                              long resets,long kernelNanos,long stateHostDownloadBytes) {}
     private final TornadoDevice device;
     private final int capacity;
+    private final boolean nativeGroupedNormalization;
     private final long budget;
     private final Set<Owned> resources=Collections.newSetFromMap(new IdentityHashMap<>());
     private long resident,graphId,hyperMixes,hyperCombines,pleForwards,checkpoints,restores,resets,kernelNanos;
     private boolean closed;
 
     public FlashNextLayerExecutor(int deviceIndex,int checkpointCapacity,long budget) {
+        this(deviceIndex,checkpointCapacity,budget,false);
+    }
+    public FlashNextLayerExecutor(int deviceIndex,int checkpointCapacity,long budget,boolean nativeGroupedNormalization) {
+        this.nativeGroupedNormalization=nativeGroupedNormalization;
         if(checkpointCapacity<1 || budget<=0) throw new IllegalArgumentException("Positive layer budget and checkpoint capacity required");
         device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);
         capacity=checkpointCapacity;this.budget=budget;
@@ -110,10 +115,13 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
                 mixInput=array(shape.width());gates=array(shape.width());mixed=array(shape.dimension());mixFused=control(1);
                 block=array(shape.dimension());residual=array(shape.width());injection=array(shape.branches());combined=array(shape.width());
                 String id="flashnextHyper"+(graphId++);
-                normalizePlan=plan(new TaskGraph(id+"Norm").transferToDevice(DataTransferMode.FIRST_EXECUTION,weights)
-                        .transferToDevice(DataTransferMode.EVERY_EXECUTION,normInput)
-                        .task("normalize",FlashNextLayerKernels::groupedNorm,normInput,weights,normOutput,shape.dimension(),shape.epsilon())
-                        .transferToHost(DataTransferMode.UNDER_DEMAND,normOutput));
+                var normGraph=new TaskGraph(id+"Norm").transferToDevice(DataTransferMode.FIRST_EXECUTION,weights)
+                        .transferToDevice(DataTransferMode.EVERY_EXECUTION,normInput);
+                if(nativeGroupedNormalization && shape.dimension()%512==0 && shape.dimension()<=16384) {
+                    normGraph.libraryTask("normalize",FlashNextRmsNormLibrary::grouped,shape.branches(),shape.dimension(),shape.epsilon(),normInput,weights,normOutput)
+                            .task("boundary",org.beehive.jitllm.backend.tornado.kernels.FlashNextMoeKernels::bf16Boundary,normOutput);
+                } else normGraph.task("normalize",FlashNextLayerKernels::groupedNorm,normInput,weights,normOutput,shape.dimension(),shape.epsilon());
+                normalizePlan=plan(normGraph.transferToHost(DataTransferMode.UNDER_DEMAND,normOutput));
                 lowPlan=plan(new TaskGraph(id+"Low").transferToDevice(DataTransferMode.EVERY_EXECUTION,low,lowFused)
                         .task("activate",FlashNextLayerKernels::activateLow,low,lowFused,shape.branches())
                         .transferToHost(DataTransferMode.UNDER_DEMAND,low));

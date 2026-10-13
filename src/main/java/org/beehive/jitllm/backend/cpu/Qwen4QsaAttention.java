@@ -14,6 +14,7 @@ public final class Qwen4QsaAttention {
     private final boolean fp8Kv;
     private final boolean fusedPrecision;
     private final QsaExecutor executor;
+    private final int draftTail;
     private final int[] ropeAxes;
     private final float[] frequencies;
     public final class State implements AutoCloseable {
@@ -24,15 +25,16 @@ public final class Qwen4QsaAttention {
         private final int[][] pendingPositions=new int[config.indexerCompressRatio()][3];
         private int[] selection=new int[0];
         private int prefillBlockSize=32;
+        private int indexedThrough;
         private final QsaExecutor.Session device;
         private boolean closed;
         private State() {
             device=executor==null ? null : executor.newSession(new QsaExecutor.Shape(config.contextLength(),config.numberOfHeads(),config.numberOfKeyValueHeads(),config.headSize(),
-                    config.indexerHeads(),config.indexerHeadDim(),config.indexerCompressRatio(),config.indexerBudget(),config.rotaryDimensions(),config.rmsNormEps()),
+                    config.indexerHeads(),config.indexerHeadDim(),config.indexerCompressRatio(),config.indexerBudget(),config.rotaryDimensions(),config.rmsNormEps(),draftTail),
                     qNorm,kNorm,indexQNorm,indexKNorm,ropeAxes,frequencies,fp8Kv,fusedPrecision);
         }
         private void requireOpen() {if(closed) throw new IllegalStateException("QSA state is closed");}
-        public record Snapshot(State owner,int tokens,int blocks,float[] pending,int[][] positions,int[] selection,List<float[]> freshKeys,List<float[]> freshValues,int prefillBlockSize,QsaExecutor.Snapshot device) implements AutoCloseable {
+        public record Snapshot(State owner,int tokens,int blocks,float[] pending,int[][] positions,int[] selection,List<float[]> freshKeys,List<float[]> freshValues,int prefillBlockSize,int indexedThrough,QsaExecutor.Snapshot device) implements AutoCloseable {
             @Override public void close() {if(device!=null) device.close();}
         }
         public int tokens() { return device==null ? keys.size() : device.tokens(); }
@@ -42,9 +44,9 @@ public final class Qwen4QsaAttention {
         }
         public Snapshot snapshot() throws IOException {
             requireOpen();
-            if(device!=null) return new Snapshot(this,tokens(),0,new float[0],new int[0][],new int[0],List.of(),List.of(),prefillBlockSize,device.snapshot());
+            if(device!=null) return new Snapshot(this,tokens(),0,new float[0],new int[0][],new int[0],List.of(),List.of(),prefillBlockSize,0,device.snapshot());
             int[][] positions=Arrays.stream(pendingPositions).map(int[]::clone).toArray(int[][]::new);
-            return new Snapshot(this,tokens(),compressed.size(),pending.clone(),positions,selection.clone(),List.copyOf(freshKeys),List.copyOf(freshValues),prefillBlockSize,null);
+            return new Snapshot(this,tokens(),compressed.size(),pending.clone(),positions,selection.clone(),List.copyOf(freshKeys),List.copyOf(freshValues),prefillBlockSize,indexedThrough,null);
         }
         public void restore(Snapshot snapshot) throws IOException {
             requireOpen();if(snapshot.owner()!=this) throw new IllegalArgumentException("Wrong QSA checkpoint owner");
@@ -59,6 +61,7 @@ public final class Qwen4QsaAttention {
             selection=snapshot.selection().clone();
             freshKeys.clear();freshKeys.addAll(snapshot.freshKeys());freshValues.clear();freshValues.addAll(snapshot.freshValues());
             prefillBlockSize=snapshot.prefillBlockSize();
+            indexedThrough=snapshot.indexedThrough();
         }
         /** SM120 uses the staged sparse kernel's L20 tuning table. */
         public void setPrefillQueryCount(int queries) {
@@ -71,6 +74,7 @@ public final class Qwen4QsaAttention {
             requireOpen();
             if(device!=null) {try {device.reset();} catch(IOException failure) {throw new java.io.UncheckedIOException(failure);}prefillBlockSize=32;return;}
             keys.clear(); values.clear(); compressed.clear(); Arrays.fill(pending,0);
+            indexedThrough=0;
             finishFreshPrefill();
             for(int[] positions:pendingPositions) Arrays.fill(positions,0);
             selection=new int[0];
@@ -94,7 +98,12 @@ public final class Qwen4QsaAttention {
         this(config,tensors,reader,prefix,fp8Kv,fusedPrecision,executor,null);
     }
     public Qwen4QsaAttention(Qwen4Configuration config,SafeTensorIndex tensors,PagedTensorReader reader,String prefix,boolean fp8Kv,boolean fusedPrecision,MatrixExecutor matrices,QsaExecutor executor) throws IOException {
+        this(config,tensors,reader,prefix,fp8Kv,fusedPrecision,matrices,executor,0);
+    }
+    public Qwen4QsaAttention(Qwen4Configuration config,SafeTensorIndex tensors,PagedTensorReader reader,String prefix,boolean fp8Kv,boolean fusedPrecision,MatrixExecutor matrices,QsaExecutor executor,int draftTail) throws IOException {
+        if(draftTail<0 || draftTail>3) throw new IllegalArgumentException("Invalid MTP sparse tail capacity");
         this.config=config;
+        this.draftTail=draftTail;
         this.fp8Kv=fp8Kv;
         this.fusedPrecision=fusedPrecision;
         this.executor=executor;
@@ -170,11 +179,25 @@ public final class Qwen4QsaAttention {
         int position=state.tokens();return forward(hidden,new int[]{position,position,position},state,prefill,freshPrefill);
     }
     public float[] forward(float[] hidden,int[] ropePositions,State state,boolean prefill,boolean freshPrefill) throws IOException {
+        return forward(hidden,ropePositions,state,prefill,freshPrefill,null);
+    }
+    public float[] forwardFrozen(float[] hidden,State state,int[] selection) throws IOException {
+        int position=state.tokens();return forward(hidden,new int[]{position,position,position},state,false,false,selection);
+    }
+    private float[] forward(float[] hidden,int[] ropePositions,State state,boolean prefill,boolean freshPrefill,int[] frozen) throws IOException {
         state.requireOpen();
+        if(state.device==null && frozen==null && state.indexedThrough!=state.tokens()) throw new IllegalArgumentException("Restore indexed prefix before draft extend");
         if(freshPrefill && !prefill) throw new IllegalArgumentException("Fresh KV requires prefill");
         if(hidden.length!=config.dim() || state.owner!=this || ropePositions.length!=3 || state.tokens()>=config.contextLength())
             throw new IllegalArgumentException("Invalid QSA input/state/context");
         for(int position:ropePositions) if(position<0) throw new IllegalArgumentException("Negative RoPE coordinate");
+        if(frozen!=null) {
+            if(draftTail==0 || frozen.length==0 || frozen.length>config.indexerBudget()+config.indexerCompressRatio()-1+draftTail)
+                throw new IllegalArgumentException("Invalid frozen sparse capacity");
+            var seen=new HashSet<Integer>();for(int token:frozen) if(token<0 || token>state.tokens() || !seen.add(token)) throw new IllegalArgumentException("Invalid frozen sparse token");
+        }
+        if(state.device!=null && frozen!=null) return Qwen4CpuLayers.project(out,state.device.forwardFrozen(Qwen4CpuLayers.project(q,hidden),Qwen4CpuLayers.project(k,hidden),
+                Qwen4CpuLayers.project(v,hidden),ropePositions,frozen));
         if(state.device!=null) return Qwen4CpuLayers.project(out,state.device.forward(Qwen4CpuLayers.project(q,hidden),Qwen4CpuLayers.project(k,hidden),
                 Qwen4CpuLayers.project(v,hidden),Qwen4CpuLayers.project(index,hidden),ropePositions,prefill,freshPrefill,state.prefillBlockSize));
         int head=config.headSize(),heads=config.numberOfHeads();
@@ -202,9 +225,11 @@ public final class Qwen4QsaAttention {
             }
         }
         state.keys.add(keys); state.values.add(values);
-        float[] indexProjection=Qwen4CpuLayers.project(index,hidden);
+        float[] indexQuery=null;
         int indexWidth=config.indexerHeadDim(),queryWidth=config.indexerHeads()*indexWidth;
-        float[] indexQuery=normalize(Arrays.copyOf(indexProjection,queryWidth),indexQNorm); rope(indexQuery,indexWidth,ropePositions);
+        if(frozen==null) {
+        float[] indexProjection=Qwen4CpuLayers.project(index,hidden);
+        indexQuery=normalize(Arrays.copyOf(indexProjection,queryWidth),indexQNorm); rope(indexQuery,indexWidth,ropePositions);
         int slot=(state.tokens()-1)%config.indexerCompressRatio();
         System.arraycopy(indexProjection,queryWidth,state.pending,slot*indexWidth,indexWidth);
         state.pendingPositions[slot]=ropePositions.clone();
@@ -217,7 +242,9 @@ public final class Qwen4QsaAttention {
             pooled=normalize(pooled,indexKNorm);rope(pooled,indexWidth,state.pendingPositions[0]);
             state.compressed.add(pooled);
         }
-        state.selection=select(indexQuery,state.compressed,state.tokens(),config.indexerHeads(),indexWidth,config.indexerBudget(),config.indexerCompressRatio());
+        }
+        state.selection=frozen==null ? select(indexQuery,state.compressed,state.tokens(),config.indexerHeads(),indexWidth,config.indexerBudget(),config.indexerCompressRatio()) : frozen.clone();
+        if(frozen==null) state.indexedThrough=state.tokens();
         float[] attention=new float[query.length],scores=new float[state.selection.length];
         for(int h=0;h<heads;h++) {
             int keyHead=h/config.kvMul();float maximum=Float.NEGATIVE_INFINITY;

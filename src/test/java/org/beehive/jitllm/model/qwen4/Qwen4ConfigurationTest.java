@@ -56,6 +56,12 @@ public final class Qwen4ConfigurationTest {
         assertTrue(config.isRecurrentLayer(0)); assertFalse(config.isRecurrentLayer(1));
         assertFalse(config.hasPle(0)); assertTrue(config.hasPle(1));
         assertEquals(1792L,config.recurrentStateBytes());
+        var mtp=config.mtpConfiguration();
+        assertEquals(1,mtp.numberOfLayers());assertEquals(1,mtp.keyValueLayerCount());
+        assertEquals(0,mtp.mtpLayers());assertEquals(0,mtp.recurrentStateBytes());
+        assertFalse(mtp.isRecurrentLayer(0));assertFalse(mtp.hasPle(0));
+        assertEquals(config.hyperDim(),mtp.hyperDim());assertEquals(config.contextLength(),mtp.contextLength());
+        assertEquals(2,config.numberOfLayers());assertTrue(config.hasPle(1));
     }
     @Test public void requestedContextKeepsNativeCeiling() throws Exception {
         var config=load(CONFIG,8);
