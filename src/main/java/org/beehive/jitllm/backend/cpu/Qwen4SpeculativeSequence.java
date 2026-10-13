@@ -30,6 +30,11 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
         Qwen4CpuEngine.Output teacher(int successor,float[] targetHidden,boolean logits) throws IOException;
         Qwen4CpuEngine.Output propose(int successor,float[] draftHidden) throws IOException;
     }
+    /** Optional conformance observer; receives real teacher inputs and chained draft outputs. */
+    public interface Observer {
+        void teacher(int successor,float[] targetHidden,Qwen4CpuEngine.Output output);
+        void proposal(int successor,float[] draftHidden,Qwen4CpuEngine.Output output);
+    }
     public record Statistics(long proposed,long accepted,long corrections,long rounds,long targetForwards,long teacherForwards,long draftForwards,long rollbacks) {}
     private record Feed(int successor,float[] hidden) {}
     private final Target target;
@@ -40,6 +45,7 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
     private Qwen4CpuEngine.Output targetOutput,draftOutput;
     private int logical,pending=-1;
     private boolean pendingStop,finishTeacherPrefill,closed;
+    private Observer observer;
     private long proposed,accepted,corrections,rounds,targetForwards,teacherForwards,draftForwards,rollbacks;
 
     public Qwen4SpeculativeSequence(Target target,Draft draft,int context,int vocabulary,Runnable onClose) {
@@ -49,8 +55,11 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
     private void check() {if(closed) throw new IllegalStateException("Speculative sequence is closed");}
     @Override public int position() {return logical;}
     public Statistics statistics() {return new Statistics(proposed,accepted,corrections,rounds,targetForwards,teacherForwards,draftForwards,rollbacks);}
+    public void observe(Observer observer) {check();if(logical!=0) throw new IllegalStateException("Attach an observer before generation");this.observer=observer;}
     private Qwen4CpuEngine.Output targetForward(int token,boolean logits) throws IOException {var out=target.forward(token,logits);targetForwards++;return out;}
-    private Qwen4CpuEngine.Output teacher(int token,float[] hidden,boolean logits) throws IOException {var out=draft.teacher(token,hidden,logits);teacherForwards++;return out;}
+    private Qwen4CpuEngine.Output teacher(int token,float[] hidden,boolean logits) throws IOException {
+        var out=draft.teacher(token,hidden,logits);teacherForwards++;if(observer!=null) observer.teacher(token,hidden,out);return out;
+    }
     private int sample(Qwen4CpuEngine.Output output,Sampler sampler) {
         int token=sampler.sampleToken(Logits.of(new ArrayFloatTensor(output.logits().clone())));
         if(token<0 || token>=vocabulary) throw new IllegalArgumentException("Sampler returned an invalid token");return token;
@@ -132,7 +141,10 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
                 var current=draftOutput;
                 for(int i=0;i<count;i++) {
                     candidates[i]=current.greedy();proposed++;
-                    if(i+1<count) {current=draft.propose(candidates[i],current.hyperHidden());draftForwards++;}
+                    if(i+1<count) {
+                        var hidden=current.hyperHidden();current=draft.propose(candidates[i],hidden);draftForwards++;
+                        if(observer!=null) observer.proposal(candidates[i],hidden,current);
+                    }
                 }
                 draft.restore(draftBase);
                 verified.add(targetForward(pending,true));prefixes.add(target.snapshot());

@@ -1,0 +1,34 @@
+{
+  "input_tokens": [
+    248045,
+    846,
+    198,
+    17,
+    10,
+    17,
+    19279,
+    248046,
+    198,
+    248045,
+    74455,
+    198,
+    248068,
+    271,
+    248069,
+    271
+  ],
+  "expected_tokens": [
+    17,
+    478,
+    220,
+    17,
+    283,
+    220,
+    19,
+    248046
+  ],
+  "max_tokens": 8,
+  "device": 1,
+  "context_length": 4096,
+  "teacher_fixture_output": "/tmp/jitllm-mtp-teacher.json"
+}

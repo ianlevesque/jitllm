@@ -128,12 +128,14 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
                             .task("boundary",org.beehive.jitllm.backend.tornado.kernels.FlashNextMoeKernels::bf16Boundary,normOutput);
                 } else normGraph.task("normalize",FlashNextLayerKernels::groupedNorm,normInput,weights,normOutput,shape.dimension(),shape.epsilon());
                 normalizePlan=plan(normGraph.transferToHost(DataTransferMode.UNDER_DEMAND,normOutput));
-                lowPlan=plan(new TaskGraph(id+"Low").transferToDevice(DataTransferMode.EVERY_EXECUTION,low,lowFused)
-                        .task("activate",FlashNextLayerKernels::activateLow,low,lowFused,shape.branches())
-                        .transferToHost(DataTransferMode.UNDER_DEMAND,low));
-                mixPlan=plan(new TaskGraph(id+"Mix").transferToDevice(DataTransferMode.EVERY_EXECUTION,mixInput,gates,mixFused)
-                        .task("mix",FlashNextLayerKernels::mix,mixInput,gates,mixFused,mixed,shape.branches())
-                        .transferToHost(DataTransferMode.UNDER_DEMAND,mixed));
+                var lowGraph=new TaskGraph(id+"Low").transferToDevice(DataTransferMode.EVERY_EXECUTION,low,lowFused);
+                if(nativeGroupedNormalization && shape.branches()==4) lowGraph.libraryTask("activate",FlashNextRmsNormLibrary::activate,shape.branches(),lowrank,low,lowFused);
+                else lowGraph.task("activate",FlashNextLayerKernels::activateLow,low,lowFused,shape.branches());
+                lowPlan=plan(lowGraph.transferToHost(DataTransferMode.UNDER_DEMAND,low));
+                var mixGraph=new TaskGraph(id+"Mix").transferToDevice(DataTransferMode.EVERY_EXECUTION,mixInput,gates,mixFused);
+                if(nativeGroupedNormalization && shape.branches()==4) mixGraph.libraryTask("mix",FlashNextRmsNormLibrary::mix,shape.branches(),shape.dimension(),mixInput,gates,mixFused,mixed);
+                else mixGraph.task("mix",FlashNextLayerKernels::mix,mixInput,gates,mixFused,mixed,shape.branches());
+                mixPlan=plan(mixGraph.transferToHost(DataTransferMode.UNDER_DEMAND,mixed));
                 combinePlan=plan(new TaskGraph(id+"Combine").transferToDevice(DataTransferMode.EVERY_EXECUTION,block,residual,injection)
                         .task("combine",FlashNextLayerKernels::combine,block,residual,injection,combined,shape.branches())
                         .transferToHost(DataTransferMode.UNDER_DEMAND,combined));

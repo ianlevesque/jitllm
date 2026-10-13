@@ -17,6 +17,9 @@ public class Qwen4SpeculativeSequenceTest {
         logits[(hash+bias)%VOCAB]=3;
         return new Qwen4CpuEngine.Output(new float[]{hash},new float[]{hash,position},logits);
     }
+    private static Qwen4CpuEngine.Output masked(Qwen4CpuEngine.Output output,int valid) {
+        Arrays.fill(output.logits(),valid,output.logits().length,Float.NEGATIVE_INFINITY);return output;
+    }
     private abstract static class Endpoint implements Qwen4SpeculativeSequence.Endpoint {
         int position,hash,maxSnapshots;boolean closed;final Set<Saved> saved=new HashSet<>();
         final class Saved implements Qwen4SpeculativeSequence.Checkpoint {
@@ -35,23 +38,26 @@ public class Qwen4SpeculativeSequenceTest {
         public void close() {closed=true;assertTrue(saved.isEmpty());}
     }
     private static final class Target extends Endpoint implements Qwen4SpeculativeSequence.Target {
-        int failAt=-1;
+        int failAt=-1,valid=VOCAB;
         public Qwen4CpuEngine.Output forward(int token,boolean logits) throws IOException {
             if(position==failAt) {failAt=-1;throw new IOException("injected target");}
-            hash=advance(hash,token);position++;return output(hash,position,0);
+            hash=advance(hash,token);position++;return masked(output(hash,position,0),valid);
         }
     }
     private static final class Draft extends Endpoint implements Qwen4SpeculativeSequence.Draft {
-        final int bias;boolean failTeacher;
+        final int bias;int valid=VOCAB;boolean failTeacher;
         Draft(int bias) {this.bias=bias;}
         public Qwen4CpuEngine.Output teacher(int token,float[] hidden,boolean logits) throws IOException {
             if(failTeacher) {failTeacher=false;throw new IOException("injected teacher");}
-            assertEquals(position+1,(int)hidden[1]);hash=advance((int)hidden[0],token);position++;return output(hash,position+1,bias);
+            assertEquals(position+1,(int)hidden[1]);hash=advance((int)hidden[0],token);position++;return masked(output(hash,position+1,bias),valid);
         }
-        public Qwen4CpuEngine.Output propose(int token,float[] hidden) {hash=advance((int)hidden[0],token);position++;return output(hash,position+1,bias);}
+        public Qwen4CpuEngine.Output propose(int token,float[] hidden) {hash=advance((int)hidden[0],token);position++;return masked(output(hash,position+1,bias),valid);}
     }
     private static List<Integer> baseline(List<Integer> prompt,int count,Sampler sampler) throws IOException {
-        var target=new Target();Qwen4CpuEngine.Output out=null;for(int token:prompt) out=target.forward(token,true);
+        return baseline(prompt,count,sampler,VOCAB);
+    }
+    private static List<Integer> baseline(List<Integer> prompt,int count,Sampler sampler,int valid) throws IOException {
+        var target=new Target();target.valid=valid;Qwen4CpuEngine.Output out=null;for(int token:prompt) out=target.forward(token,true);
         var result=new ArrayList<Integer>();for(int i=0;i<count;i++) {int token=sampler.sampleToken(Logits.of(new ArrayFloatTensor(out.logits().clone())));result.add(token);out=target.forward(token,true);}return result;
     }
     @Test public void acceptsAndCorrectsAgainstTheSameTarget() throws Exception {
@@ -72,6 +78,16 @@ public class Qwen4SpeculativeSequenceTest {
             try(var sequence=new Qwen4SpeculativeSequence(target,draft,64,VOCAB,null)) {
                 assertEquals(baseline(List.of(2,3),20,Sampler.selectSampler(VOCAB,.9f,.8f,seed)),
                         sequence.generate(0,List.of(2,3),Set.of(),22,Sampler.selectSampler(VOCAB,.9f,.8f,seed),null));
+            }
+        }
+    }
+    @Test public void paddedHeadSamplingUsesTheHeadWidthAndMasksUnavailableTokens() throws Exception {
+        for(int seed=0;seed<4;seed++) {
+            int valid=VOCAB-2;var target=new Target();target.valid=valid;var draft=new Draft(1);draft.valid=valid;
+            try(var sequence=new Qwen4SpeculativeSequence(target,draft,64,valid,null)) {
+                var tokens=sequence.generate(0,List.of(2,3),Set.of(),22,Sampler.selectSampler(VOCAB,.8f,.9f,seed),null);
+                assertEquals(baseline(List.of(2,3),20,Sampler.selectSampler(VOCAB,.8f,.9f,seed),valid),tokens);
+                assertTrue(tokens.stream().allMatch(token->token<valid));
             }
         }
     }

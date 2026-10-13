@@ -1,0 +1,108 @@
+{
+  "text": "2 + 2 = 4",
+  "output_ids": [
+    17,
+    478,
+    220,
+    17,
+    283,
+    220,
+    19,
+    248046
+  ],
+  "meta_info": {
+    "id": "f1aecb430ede4efcb261542fee3e9935",
+    "finish_reason": {
+      "type": "length",
+      "length": 8
+    },
+    "prompt_tokens": 16,
+    "weight_version": "default",
+    "num_retractions": 0,
+    "forward_entry_time": 1791860507.0870087,
+    "prefill_finished_time": 1791860507.1689386,
+    "queue_time": 0.0002853870391845703,
+    "input_token_logprobs": [],
+    "output_token_logprobs": [
+      [
+        -0.06767529994249344,
+        17,
+        null
+      ],
+      [
+        -0.04364420473575592,
+        478,
+        null
+      ],
+      [
+        -3.158996332786046e-05,
+        220,
+        null
+      ],
+      [
+        -0.00010895135346800089,
+        17,
+        null
+      ],
+      [
+        -0.0021275284234434366,
+        283,
+        null
+      ],
+      [
+        -0.5760717988014221,
+        220,
+        null
+      ],
+      [
+        -0.00038890427094884217,
+        19,
+        null
+      ],
+      [
+        -0.007907041348516941,
+        248046,
+        null
+      ]
+    ],
+    "output_token_logprobs_length": 8,
+    "reasoning_tokens": 0,
+    "completion_tokens": 8,
+    "cached_tokens": 0,
+    "weight_versions": [
+      {
+        "version": "default",
+        "start": 0,
+        "end": 8
+      }
+    ],
+    "cached_tokens_details": null,
+    "dp_rank": null,
+    "e2e_latency": 0.11735508299898356,
+    "spec_accept_rate": 0.8333333333333334,
+    "spec_accept_length": 4.0,
+    "spec_num_correct_drafts": 5,
+    "spec_num_proposed_drafts": 6,
+    "spec_verify_ct": 2,
+    "spec_accepted_drafts": 5,
+    "spec_proposed_drafts": 6,
+    "spec_correct_drafts_histogram": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "spec_accept_histogram": [
+      0,
+      0,
+      1,
+      1
+    ],
+    "request_received_ts": 1791860507.0863237,
+    "first_token_latency": 0.11735275000683032,
+    "api_server_dispatch_finish_ts": 1791860507.086447,
+    "request_finished_ts": 1791860507.2036788,
+    "decode_throughput": 3000438.724267412,
+    "response_sent_to_client_ts": 1791860507.2038956
+  }
+}

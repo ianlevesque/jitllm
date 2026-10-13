@@ -1,0 +1,32 @@
+{
+  "java_suite": {
+    "tests": 816,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "launcher_tests": 112,
+  "coordinator_tests": 6,
+  "matching_overlay_clone_fork_files": 116,
+  "native_mtp_cuda_api_enabled_by_default": false,
+  "native_mtp_cuda_api_passed": true,
+  "native_mtp_cuda_api_concurrent_callers": 3,
+  "native_mtp_cuda_api_reset_replay_exact": true,
+  "native_mtp_cuda_api_fp8_calls": 17000,
+  "native_mtp_cuda_api_checkpoint_descriptors_after_close": 0,
+  "native_stochastic_target_only_exact": true,
+  "native_stochastic_tokens": 8,
+  "native_stochastic_seed": 42,
+  "native_stochastic_accepted": 5,
+  "native_stochastic_corrections": 2,
+  "synthetic_mtp_activation_gate_passed": true,
+  "real_target_hc_activation_gate_passed": false,
+  "real_target_hc_failing_activation_checks": 7,
+  "real_target_hc_failing_teacher_rows": [
+    6,
+    14
+  ],
+  "real_target_hc_chained_draft_stages_exact": true,
+  "full_context_concurrent_capacity_qualified": false,
+  "production_native_serving_deployed": false
+}

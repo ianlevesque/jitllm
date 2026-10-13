@@ -555,18 +555,85 @@ prefix, while teacher refresh uses verified target HC states. Deferred teacher
 updates happen before the next sampler draw, allowing teacher I/O failures to
 retry without consuming another draw.
 
-Five unit tests compare accepted and rejected drafts with a target-only oracle,
+Six unit tests compare accepted and rejected drafts with a target-only oracle,
 including 32 stochastic seeds, budget/context boundaries, cancellation,
 multiturn pending tokens, stop tokens, reset, checkpoint release and injected
-failures. The native engine/MTP adapters are included, but the normal CUDA API
-does not yet select this coordinator. Real target-derived MTP qualification,
-native end-to-end generation and batched verification remain required.
+failures, including a padded output-head case. The normal CUDA model/API now selects paired target/MTP state when
+`jitllm.qwen4.mtp=true`. Its default remains target-only while broader native
+qualification continues. Batched verification remains required.
 Optional full-distribution p/q rejection sampling is also unimplemented; this
 coordinator implements the staged top-1 proposal policy.
 
 `speculative-coordinator-tests.json` records the updated fork test suite.
-The block checks and coordinator unit tests do not establish working
-speculative CUDA API generation.
+The coordinator unit tests cover state transitions; the native checks below
+cover real checkpoint execution.
+
+## Native speculative session qualification
+
+Set `System.setProperty("jitllm.qwen4.mtp", "true")` before `LocalModels.load` to
+create request-owned target/MTP states. Target and draft plans share the model's
+projection cache, and device calls serialize across sessions. MTP owns separate
+HC, QSA, block-FP8 MoE and fusion executors. Session close/reset acts on both
+states; model close releases borrowed states/blocks before their executors.
+At least six checkpoint slots are required (the default is eight).
+`prepare()` reports draft-three target verification rather than target-only
+decode. Direct model generation and managed CUDA sessions use the same route.
+
+The MTP defaults add a 4 MiB HC budget, 2 GiB logical QSA address-space budget,
+128 MiB expert budget and 128 MiB fusion budget. Override them with
+`jitllm.qwen4.gpuMtpLayerBytes`, `gpuMtpQsaBytes`, `gpuMtpExpertBytes` and
+`gpuMtpFusionBytes`, respectively. These are executor buffer budgets, not a
+complete physical VRAM reservation. Full-context concurrent capacity remains
+unqualified.
+
+`gpu-speculative-real-generation.json` checks the real 16-token ChatML prompt
+against a fresh uncached staged response and native target-only decoding. All
+eight IDs match, including the terminal chat token. It exercises five accepted
+proposals, two corrections and three verification rounds, plus exact
+reset/replay. All tracked target/MTP resources are zero after close; KV remains
+on the device and the PLE reader stays at 1 MiB. This is sequential verification,
+so additional target work occurs on rejected proposals.
+
+`gpu-speculative-stochastic-generation.json` checks one real seeded request at
+temperature 0.8 / top-p 0.9 against native target-only decoding. All eight tokens
+match, with five accepts and two corrections; tracked resources release at
+close. This run does not repeat reset/replay, which is covered by the greedy
+and API checks.
+
+`gpu-mtp-api-native-hc-regression.json` runs three simultaneous API callers
+serialized on shared workspaces, then reset/replay. All four runs emit the
+same three reference tokens. MTP FP8 execution occurs 17,000 times; native
+contexts, registrations, XQA workspaces and checkpoint descriptors release at
+close. The sequential run takes about 529 seconds. This covers short requests
+at 4,096-token capacity, not three full 262,144-token requests.
+
+`speculative-api-regression-tests.json` records the final Java/launcher suites
+and separates generation/state checks from the failed activation gate.
+
+The first teacher prefix can be captured with `teacher_fixture_output` in a
+`speculative-probe` request. `verify_jitllm_mtp_block.py --teacher-fixture FILE`
+then checks those HC states and the actual proposal tokens against staged
+kernels, with the original rtol 0.016 / atol 0.004. Its fixture SHA identifies
+the exact input trajectory.
+
+`gpu-mtp-real-target-hc-pre-native-mix.json` preserves 86 failing activation
+checks. Native MTP HC activation/mix now uses the staged FP32 exponential and
+paired fused reduction. `gpu-mtp-real-target-hc-parity.json` reduces the failures
+to seven, concentrated in two teacher rows; all three chained draft steps are
+exact and the four checked greedy IDs match. The activation gate is still
+**failed**. `mtp-real-target-reference-replay.json` confirms that replay of the
+staged oracle passes on these inputs. Diagnostic isolation finds a BF16 lowrank
+boundary crossed by different FP32 down-projection reduction orders. Do not
+interpret matching generated IDs as complete MTP numerical qualification.
+
+```bash
+python3 scripts/flash-next/jitllm_runtime.py speculative-probe MODEL_DIR \
+  scripts/flash-next/examples/short-chatml-speculative.json
+python3 scripts/flash-next/verify_jitllm_mtp_block.py MODEL_DIR \
+  --teacher-fixture /tmp/jitllm-mtp-teacher.json --output real-mtp-parity.json
+python3 scripts/flash-next/jitllm_runtime.py gpu-api-probe MODEL_DIR \
+  scripts/flash-next/examples/short-chatml-mtp-gpu-api.json
+```
 
 ## Normal CUDA model/API integration
 
@@ -762,9 +829,10 @@ and an optional `cache_bytes` budget.
 2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
    including grouped native NVFP4 projections and complete FP8 draft-layer integration. The normal CUDA
    model provider now dispatches through its owned plans; production serving remains to be qualified.
-3. Qualify real target-derived MTP/NextN trajectories and connect the tested
-   draft-three coordinator to the normal CUDA API. Verify native target/draft
-   rollback, correction and stochastic sampling end to end, then batch verification.
+3. Finish real target-derived MTP/NextN numerical qualification, broaden native
+   speculative generation and multiturn replay, and batch target verification.
+   The opt-in CUDA API coordinator now performs draft-three verification,
+   rejection correction and accepted-prefix rollback.
 4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
    prefill/chunking, memory planning and three-request scheduling. Configuration
    and admission checks do not prove full-context/concurrent inference.

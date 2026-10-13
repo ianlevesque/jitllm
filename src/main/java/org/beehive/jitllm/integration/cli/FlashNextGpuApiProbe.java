@@ -7,6 +7,9 @@ import org.beehive.jitllm.api.*;
 import org.beehive.jitllm.backend.tornado.FlashNextNvfp4Library;
 import org.beehive.jitllm.backend.tornado.FlashNextBf16FloatLibrary;
 import org.beehive.jitllm.backend.tornado.FlashNextXqaLibrary;
+import org.beehive.jitllm.backend.tornado.FlashNextFp8Library;
+import org.beehive.jitllm.backend.tornado.FlashNextSharedBf16Library;
+import org.beehive.jitllm.backend.tornado.FlashNextRmsNormLibrary;
 import org.beehive.jitllm.runtime.backend.BackendId;
 import org.beehive.jitllm.runtime.policy.StorageOptions;
 import org.beehive.jitllm.server.Json;
@@ -37,6 +40,7 @@ public final class FlashNextGpuApiProbe {
     public static void main(String[] args) throws Exception {
         if(args.length!=2) throw new IllegalArgumentException("Usage: FlashNextGpuApiProbe MODEL_DIR REQUEST.json");
         var request=Json.parseObject(Files.readString(Path.of(args[1])));
+        boolean mtp=Boolean.TRUE.equals(request.get("mtp"));System.setProperty("jitllm.qwen4.mtp",String.valueOf(mtp));
         System.setProperty("jitllm.qwen4.device",String.valueOf(((Number)request.getOrDefault("device",1)).intValue()));
         Path checkpoint=Path.of(args[0]).toRealPath();var checkpointFiles=new HashSet<String>();
         try(var files=Files.list(checkpoint)) {
@@ -63,6 +67,7 @@ public final class FlashNextGpuApiProbe {
                 var session=generator.newSession();sessions.add(session);var info=session.prepare();prepared=info.toString();
                 if(!"CUDA".equals(info.backend()) || !info.kvCache().startsWith("FP8") || session.position()!=0 || !info.equals(session.prepare()))
                     throw new AssertionError("prepare() changed state or described a different backend");
+                if(mtp && !info.toString().contains("MTP draft-three")) throw new AssertionError("MTP API request used target-only state");
             }
             try {generator.newSession();throw new AssertionError("Fourth session admitted");} catch(IllegalStateException expectedRefusal) {}
             try {model.close();throw new AssertionError("Model closed with live sessions");} catch(IllegalStateException expectedRefusal) {}
@@ -85,6 +90,10 @@ public final class FlashNextGpuApiProbe {
             throw new AssertionError("CUDA API HC/QSA FP32 GEMMs leaked resources or did not execute");
         if(xqaStats.contexts()!=0 || xqaStats.calls()==0)
             throw new AssertionError("CUDA API XQA contexts leaked or did not execute");
+        if(FlashNextFp8Library.statistics().contexts()!=0 || FlashNextFp8Library.statistics().plans()!=0
+                || FlashNextFp8Library.registeredWeights()!=0 || FlashNextSharedBf16Library.statistics().contexts()!=0
+                || FlashNextRmsNormLibrary.statistics().contexts()!=0 || mtp && FlashNextFp8Library.statistics().calls()==0)
+            throw new AssertionError("CUDA API MTP resources leaked or did not execute");
         var report=new LinkedHashMap<String,Object>();report.put("passed",true);report.put("execution",prepared);report.put("context_length",context);
         report.put("concurrent_callers",3);report.put("device_execution_serialized",true);report.put("fourth_session_refused",true);
         report.put("close_with_live_sessions_refused",true);report.put("explicit_fp16_refused",true);report.put("reset_replay_exact",true);report.put("results",results);
@@ -93,7 +102,8 @@ public final class FlashNextGpuApiProbe {
         report.put("expert_registrations_after_close",FlashNextNvfp4Library.registeredWeights());report.put("elapsed_seconds",(System.nanoTime()-start)/1e9);
         report.put("bf16_float_gemms",floatStats.calls());report.put("bf16_float_contexts_after_close",floatStats.contexts());report.put("bf16_float_plans_after_close",floatStats.plans());
         report.put("native_xqa_calls",xqaStats.calls());report.put("native_xqa_contexts_after_close",xqaStats.contexts());report.put("native_xqa_workspace_bytes_after_close",xqaStats.workspaceBytes());
-        report.put("scope","Three API callers serialized on shared device workspaces, 4096-token capacity and one short prompt/reset. Full-context concurrent capacity, batching, MTP, vision and broader chat replay remain unqualified.");
+        report.put("mtp_enabled",mtp);report.put("native_mtp_fp8_calls",FlashNextFp8Library.statistics().calls());report.put("native_mtp_contexts_after_close",FlashNextFp8Library.statistics().contexts());
+        report.put("scope","Three API callers serialized on shared device workspaces, 4096-token capacity and one short prompt/reset. Full-context concurrent capacity, batching, vision and broader chat replay remain unqualified.");
         System.out.println(Json.write(report));
     }
 }

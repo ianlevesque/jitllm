@@ -1,0 +1,79 @@
+{
+  "passed": true,
+  "execution": "ExecutionInfo[backend=CUDA, device=NVIDIA GeForce RTX 5090, runtime=TornadoVM / CUDA, mode=sequential prefill / MTP draft-three target verification, prefillBatchSize=1, kvCache=FP8 E4M3 paged KV / BF16 fresh-prefill shadow, prefillKernels=BF16 projections / native NVFP4 experts, prefillAttention=QSA sparse GQA, cudaGraphs=false, stagedTransfers=true, nativeLibraries=cuBLASLt NVFP4 experts / FP32 HC; cuBLAS BF16 HC prefill; FlashInfer XQA decode; native block-FP8 MTP / target sampling]",
+  "context_length": 4096,
+  "concurrent_callers": 3,
+  "device_execution_serialized": true,
+  "fourth_session_refused": true,
+  "close_with_live_sessions_refused": true,
+  "explicit_fp16_refused": true,
+  "reset_replay_exact": true,
+  "results": [
+    {
+      "position": 19,
+      "finish_reason": "MAX_TOKENS",
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "generated_count": 3,
+      "text": "2 + ",
+      "prompt_tokens": 16
+    },
+    {
+      "position": 19,
+      "finish_reason": "MAX_TOKENS",
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "generated_count": 3,
+      "text": "2 + ",
+      "prompt_tokens": 16
+    },
+    {
+      "position": 19,
+      "finish_reason": "MAX_TOKENS",
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "generated_count": 3,
+      "text": "2 + ",
+      "prompt_tokens": 16
+    },
+    {
+      "position": 19,
+      "finish_reason": "MAX_TOKENS",
+      "generated_tokens": [
+        17,
+        478,
+        220
+      ],
+      "generated_count": 3,
+      "text": "2 + ",
+      "prompt_tokens": 16
+    }
+  ],
+  "checkpoint_descriptors_before": 0,
+  "checkpoint_descriptors_during": 11,
+  "checkpoint_descriptors_after": 0,
+  "native_gemms": 72960,
+  "native_contexts_after_close": 0,
+  "native_plans_after_close": 0,
+  "expert_registrations_after_close": 0,
+  "elapsed_seconds": 528.520160861,
+  "bf16_float_gemms": 312576,
+  "bf16_float_contexts_after_close": 0,
+  "bf16_float_plans_after_close": 0,
+  "native_xqa_calls": 148,
+  "native_xqa_contexts_after_close": 0,
+  "native_xqa_workspace_bytes_after_close": 0,
+  "mtp_enabled": true,
+  "native_mtp_fp8_calls": 17000,
+  "native_mtp_contexts_after_close": 0,
+  "scope": "Three API callers serialized on shared device workspaces, 4096-token capacity and one short prompt/reset. Full-context concurrent capacity, batching, vision and broader chat replay remain unqualified."
+}

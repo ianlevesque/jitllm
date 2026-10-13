@@ -5,6 +5,7 @@ import java.lang.invoke.MethodHandle;
 import java.util.concurrent.atomic.AtomicLong;
 import uk.ac.manchester.tornado.api.common.*;
 import uk.ac.manchester.tornado.api.types.arrays.FloatArray;
+import uk.ac.manchester.tornado.api.types.arrays.IntArray;
 import uk.ac.manchester.tornado.runtime.common.TornadoXPUDevice;
 import uk.ac.manchester.tornado.runtime.ffm.FFMSupport;
 import uk.ac.manchester.tornado.runtime.library.spi.*;
@@ -42,8 +43,55 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
                 .withParameters(new Object[]{branches,width,block,residual,normalized,weights,output})
                 .withAccess(new Access[]{Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.WRITE_ONLY});
     }
+    public static LibraryTaskDescriptor activate(int branches,int length,FloatArray low,IntArray fused) {
+        if(branches<=0 || length<=0 || low.getSize()!=length || fused.getSize()!=1) throw new IllegalArgumentException("Invalid HC low activation buffers");
+        return new LibraryTaskDescriptor().withLibrary(NAME).withFunction("activate")
+                .withParameters(new Object[]{branches,length,low,fused})
+                .withAccess(new Access[]{Access.READ_ONLY,Access.READ_ONLY,Access.READ_WRITE,Access.READ_ONLY});
+    }
+    public static LibraryTaskDescriptor mix(int branches,int width,FloatArray normalized,FloatArray gates,IntArray fused,FloatArray output) {
+        if(branches!=4 || width<=0 || normalized.getSize()!=Math.multiplyExact(branches,width) || gates.getSize()!=normalized.getSize()
+                || fused.getSize()!=1 || output.getSize()!=width) throw new IllegalArgumentException("Invalid HC mix buffers");
+        return new LibraryTaskDescriptor().withLibrary(NAME).withFunction("mix")
+                .withParameters(new Object[]{branches,width,normalized,gates,fused,output})
+                .withAccess(new Access[]{Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.WRITE_ONLY});
+    }
     // Reduction geometry follows FlashInfer norm/kernels/rmsnorm.py (Apache-2.0).
     private static final String SOURCE="""
+        __device__ float hc_bf(float value) {
+          unsigned int bits=__float_as_uint(value);bits=(bits+0x7fff+((bits>>16)&1))&0xffff0000;
+          return __uint_as_float(bits);
+        }
+        // PTX operations used by SGLang's SM120 hc_mix_triton.py persistent kernel.
+        __device__ float hc_sigmoid(float value) {
+          float exponent=__fmul_rn(-value,1.4426950408889634f),power,result;
+          asm volatile("ex2.approx.f32 %0, %1;" : "=f"(power) : "f"(exponent));
+          float denominator=__fadd_rn(1.0f,power);
+          asm volatile("div.full.f32 %0, %1, %2;" : "=f"(result) : "f"(1.0f),"f"(denominator));
+          return result;
+        }
+        extern "C" __global__ void hc_activate(float* low,const int* fused,int length,int branches) {
+          int at=blockIdx.x*blockDim.x+threadIdx.x;if(at>=length) return;
+          float value=(*fused ? low[at] : hc_bf(low[at]))/float(branches);
+          low[at]=hc_bf(*fused ? __fmul_rn(value,hc_sigmoid(value)) : float(double(value)/(1.0+exp(-double(value)))));
+        }
+        extern "C" __global__ void hc_mix(const float* normalized,const float* gates,const int* fused,float* output,int width,int branches) {
+          int at=blockIdx.x*blockDim.x+threadIdx.x;if(at>=width) return;
+          if(*fused) {
+            float g0=hc_sigmoid(gates[at]),g1=hc_sigmoid(gates[width+at]);
+            float g2=hc_sigmoid(gates[2*width+at]),g3=hc_sigmoid(gates[3*width+at]);
+            float a=fmaf(g0,normalized[at],__fmul_rn(g2,normalized[2*width+at]));
+            float b=fmaf(g1,normalized[width+at],__fmul_rn(g3,normalized[3*width+at]));
+            output[at]=hc_bf(__fmul_rn(__fadd_rn(a,b),0.25f));
+          } else {
+            float sum=0.0f;
+            for(int branch=0;branch<branches;branch++) {
+              int j=branch*width+at;float gain=float(1.0/(1.0+exp(-double(hc_bf(gates[j])))));
+              sum=fmaf(gain,normalized[j],sum);
+            }
+            output[at]=hc_bf(sum/float(branches));
+          }
+        }
         extern "C" __global__ void gemma_norm(const float* input,const float* weights,float* output,int width,float epsilon) {
           int lane=threadIdx.x,threads=blockDim.x,row=blockIdx.x,warps=threads/32;
           __shared__ float sums[32];
@@ -139,7 +187,7 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
     private static void check(int status,String action) {if(status!=0) throw new IllegalStateException(action+" failed with CUDA/NVRTC status "+status);}
     private static RuntimeException failure(Throwable error) {if(error instanceof RuntimeException r) return r;if(error instanceof Error e) throw e;return new IllegalStateException(error);}
     private static final class Context implements LibraryContext {
-        long module,function,groupFunction,combineFunction;
+        long module,function,groupFunction,combineFunction,activateFunction,mixFunction;
         void prepare() {
             if(module!=0) return;
             long program=0;
@@ -158,7 +206,9 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
                 check((int)Native.LOAD.invokeExact(slot,code),"CUDA norm module");module=slot.get(C_LONG,0);
                 check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("gemma_norm")),"CUDA norm function");function=slot.get(C_LONG,0);
                 check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("grouped_gemma_norm")),"CUDA grouped norm function");groupFunction=slot.get(C_LONG,0);
-                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("hc_combine")),"CUDA HC combine function");combineFunction=slot.get(C_LONG,0);CONTEXTS.incrementAndGet();
+                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("hc_combine")),"CUDA HC combine function");combineFunction=slot.get(C_LONG,0);
+                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("hc_activate")),"CUDA HC activation function");activateFunction=slot.get(C_LONG,0);
+                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("hc_mix")),"CUDA HC mix function");mixFunction=slot.get(C_LONG,0);CONTEXTS.incrementAndGet();
             } catch(Throwable error) {
                 if(module!=0) try {check((int)Native.UNLOAD.invokeExact(module),"CUDA norm cleanup");module=0;} catch(Throwable closing) {error.addSuppressed(closing);}
                 throw failure(error);
@@ -171,9 +221,13 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
     @Override public String libraryName() {return NAME;}
     @Override public boolean canHandle(TornadoXPUDevice device) {return device instanceof TornadoNativeStreamSupport;}
     @Override public LibraryContext createContext(TornadoXPUDevice device,long id) {return new Context();}
-    @Override public void prepare(LibraryTaskDescriptor descriptor,LibraryContext context) {if(!descriptor.getFunctionName().equals("normalize") && !descriptor.getFunctionName().equals("grouped") && !descriptor.getFunctionName().equals("combine")) throw new IllegalArgumentException("Unknown norm function");((Context)context).prepare();}
+    @Override public void prepare(LibraryTaskDescriptor descriptor,LibraryContext context) {
+        if(!java.util.Set.of("normalize","grouped","combine","activate","mix").contains(descriptor.getFunctionName())) throw new IllegalArgumentException("Unknown norm function");
+        ((Context)context).prepare();
+    }
     @Override public void dispatch(String function,LibraryInvocation invocation) {
         if(function.equals("combine")) {dispatchCombine(invocation);return;}
+        if(function.equals("activate") || function.equals("mix")) {dispatchMix(function,invocation);return;}
         var context=(Context)invocation.getContext();int rows=(Integer)invocation.getArg(0),width=(Integer)invocation.getArg(1);
         boolean grouped=function.equals("grouped");int threads=grouped ? width/16 : width<=3072 ? 32 : width<=6144 ? 64 : width<=16384 ? 128 : 256;
         long kernel=grouped ? context.groupFunction : context.function;long stream=((TornadoNativeStreamSupport)invocation.getDevice()).getNativeStream(invocation.getExecutionPlanId());
@@ -183,6 +237,18 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
             var d=arena.allocate(4,4);d.set(C_INT,0,width);parameters.set(C_POINTER,24,d);
             var e=arena.allocate(4,4);e.set(C_FLOAT,0,(Float)invocation.getArg(2));parameters.set(C_POINTER,32,e);
             check((int)Native.LAUNCH.invokeExact(kernel,rows,1,1,threads,1,1,0,stream,parameters,MemorySegment.NULL),"CUDA Gemma norm launch");CALLS.incrementAndGet();
+        } catch(Throwable error) {throw failure(error);}
+    }
+    private static void dispatchMix(String function,LibraryInvocation invocation) {
+        var context=(Context)invocation.getContext();int branches=(Integer)invocation.getArg(0),width=(Integer)invocation.getArg(1);
+        boolean activate=function.equals("activate");int pointers=activate ? 2 : 4;
+        long stream=((TornadoNativeStreamSupport)invocation.getDevice()).getNativeStream(invocation.getExecutionPlanId());
+        try(var arena=Arena.ofConfined()) {
+            var parameters=arena.allocate((pointers+2)*8L,8);
+            for(int i=0;i<pointers;i++) {var argument=arena.allocate(8,8);argument.set(C_LONG,0,invocation.getDevicePointer(i+2));parameters.set(C_POINTER,i*8L,argument);}
+            var w=arena.allocate(4,4);w.set(C_INT,0,width);parameters.set(C_POINTER,pointers*8L,w);
+            var b=arena.allocate(4,4);b.set(C_INT,0,branches);parameters.set(C_POINTER,(pointers+1)*8L,b);
+            check((int)Native.LAUNCH.invokeExact(activate ? context.activateFunction : context.mixFunction,(width+255)/256,1,1,256,1,1,0,stream,parameters,MemorySegment.NULL),"CUDA HC mix/activation launch");CALLS.incrementAndGet();
         } catch(Throwable error) {throw failure(error);}
     }
     private static void dispatchCombine(LibraryInvocation invocation) {

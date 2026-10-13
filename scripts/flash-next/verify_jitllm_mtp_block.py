@@ -1,5 +1,6 @@
 """Compare the complete native MTP block, frozen sparse drafts and rollback with staged kernels."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -19,7 +20,7 @@ from verify_jitllm_fp8_moe import projection
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
-def verify(model, device=1, trace_output=None, reference_replay_only=False, decode_reference="staged"):
+def verify(model, device=1, trace_output=None, reference_replay_only=False, decode_reference="staged", teacher_fixture=None):
     torch.set_num_threads(4)
     torch.cuda.set_device(next(i for i in range(torch.cuda.device_count()) if "5090" in torch.cuda.get_device_name(i)))
     mapping = json.loads((model / "model.safetensors.index.json").read_text())["weight_map"]
@@ -156,11 +157,20 @@ def verify(model, device=1, trace_output=None, reference_replay_only=False, deco
         logits = F.linear(hidden, head).float().flatten(); logits[valid_vocabulary:] = -torch.inf
         return trace, int(logits.argmax()), hyper
 
-    tokens = [17, 478, 220, 20, 248044]
-    draft_tokens = [9419, 1814, 0]
-    vector = torch.arange(dim, device="cuda", dtype=torch.float32)
-    amplitudes = torch.arange(1, branches + 1, device="cuda", dtype=torch.float32).reshape(branches, 1) / 2
-    target_hidden = [(amplitudes * torch.cos(vector * .021 + row * .11)).flatten().bfloat16() for row in range(len(tokens))]
+    if teacher_fixture:
+        fixture = json.loads(teacher_fixture.read_text())
+        tokens, draft_tokens = fixture["tokens"], fixture["draft_tokens"]
+        if not tokens or len(draft_tokens) != 3 or len(fixture["target_hidden"]) != len(tokens):
+            raise ValueError("Teacher fixture requires paired inputs and three draft tokens")
+        if any(len(row) != dim * branches for row in fixture["target_hidden"]):
+            raise ValueError("Teacher fixture has an invalid HC width")
+        target_hidden = [torch.tensor(row, device="cuda", dtype=torch.bfloat16) for row in fixture["target_hidden"]]
+    else:
+        tokens = [17, 478, 220, 20, 248044]
+        draft_tokens = [9419, 1814, 0]
+        vector = torch.arange(dim, device="cuda", dtype=torch.float32)
+        amplitudes = torch.arange(1, branches + 1, device="cuda", dtype=torch.float32).reshape(branches, 1) / 2
+        target_hidden = [(amplitudes * torch.cos(vector * .021 + row * .11)).flatten().bfloat16() for row in range(len(tokens))]
     expected = []
     with torch.no_grad():
         for position, (token, hidden) in enumerate(zip(tokens, target_hidden, strict=True)):
@@ -218,7 +228,9 @@ def verify(model, device=1, trace_output=None, reference_replay_only=False, deco
     return {"passed": not failures, "failures": failures, "checkpoint": str(model), "reference": "Staged CUDA Gemma/HC/sparse-prefill/fused-gate/Triton-W8A8",
             "decode_reference": "FlashInfer paged BF16 decode over FP8-rounded KV (XQA on SM120)" if decode_reference == "staged" else "PyTorch FP32 decode over FP8-rounded KV",
             "teacher_tokens": tokens, "draft_tokens": draft_tokens, "rtol": .016, "atol": .004, "comparisons": comparisons, "execution": actual,
-            "target_verification_and_acceptance_loop_implemented": False}
+            "teacher_input_source": "supplied target HC fixture" if teacher_fixture else "synthetic cosine HC vectors",
+            "teacher_fixture_sha256": hashlib.sha256(teacher_fixture.read_bytes()).hexdigest() if teacher_fixture else None,
+            "scope": "MTP arithmetic and state; target verification and API generation are checked separately"}
 
 
 if __name__ == "__main__":
@@ -226,7 +238,8 @@ if __name__ == "__main__":
     parser.add_argument("--trace-output", type=Path)
     parser.add_argument("--reference-replay-only", action="store_true")
     parser.add_argument("--decode-reference", choices=["staged", "pytorch"], default="staged")
-    args = parser.parse_args(); result = verify(args.model, args.device, args.trace_output, args.reference_replay_only, args.decode_reference); report = json.dumps(result, indent=2)
+    parser.add_argument("--teacher-fixture", type=Path, help="Real teacher inputs captured by speculative-probe")
+    args = parser.parse_args(); result = verify(args.model, args.device, args.trace_output, args.reference_replay_only, args.decode_reference, args.teacher_fixture); report = json.dumps(result, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True); args.output.write_text(report + "\n")
     print(report)
