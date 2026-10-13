@@ -89,13 +89,13 @@ public final class Qwen4CpuLayers {
             // SM120 uses the persistent F32-accumulator mix for <=16 rows. Larger
             // prefill chunks use torch.compile, with a BF16 store after each GEMM.
             float[] low=new float[down.rows()];
-            if(fused) down.multiply(normalized,low);else down.multiplyBf16(normalized,low,prefillRows);
+            if(fused) down.multiplyBf16Float(normalized,low,down.columns()%256==0 ? 256 : down.columns());else down.multiplyBf16(normalized,low,prefillRows);
             if(trace!=null) trace.accept("down_raw",low.clone());
             if(device!=null) low=device.activateLow(low,fused);
             else for(int i=0; i<low.length; i++) low[i]=silu((fused ? low[i] : bf(low[i]))/config.hcCount());
             if(trace!=null) trace.accept("low",low.clone());
             float[] gates=new float[up.rows()],output=new float[config.dim()];
-            if(fused) up.multiply(low,gates);else up.multiplyBf16(low,gates,prefillRows);
+            if(fused) up.multiplyBf16Float(low,gates,up.columns());else up.multiplyBf16(low,gates,prefillRows);
             if(trace!=null) trace.accept("up_raw",gates.clone());
             if(device!=null) return new Mixed(device.mix(normalized,gates,fused),input.clone(),normalized);
             for(int j=0; j<output.length; j++) {

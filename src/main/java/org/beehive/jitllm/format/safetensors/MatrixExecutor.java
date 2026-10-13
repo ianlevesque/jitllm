@@ -6,6 +6,8 @@ import java.io.IOException;
 public interface MatrixExecutor {
     void multiply(ModelOptMatrix matrix, float[] input, float[] output) throws IOException;
     void multiplyNvfp4(ModelOptMatrix matrix, Nvfp4Activation.Packed input, float[] output) throws IOException;
+    /** BF16 operands with an FP32 accumulator/store; optional K partitions preserve HC decode precision. */
+    default void multiplyBf16Float(ModelOptMatrix matrix,float[] input,float[] output,int partition) throws IOException {multiply(matrix,input,output);}
     default boolean quantizesNvfp4OnDevice() {return false;}
     default void multiplyNvfp4Values(ModelOptMatrix matrix,float[] input,float scale,float[] output) throws IOException {
         multiplyNvfp4(matrix,Nvfp4Activation.quantize(input,scale),output);

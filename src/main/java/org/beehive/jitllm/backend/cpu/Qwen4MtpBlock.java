@@ -38,6 +38,7 @@ public final class Qwen4MtpBlock implements AutoCloseable {
                 }
                 public void multiplyBf16(ModelOptMatrix matrix,float[] input,float[] output,int rows) throws IOException {matrices.multiplyBf16(matrix,input,output,rows);}
                 public void multiplyBf16Batch(ModelOptMatrix matrix,float[] input,float[] output,int rows) throws IOException {matrices.multiplyBf16Batch(matrix,input,output,rows);}
+                public void multiplyBf16Float(ModelOptMatrix matrix,float[] input,float[] output,int partition) throws IOException {matrices.multiplyBf16Float(matrix,input,output,partition);}
                 public void multiplyNvfp4(ModelOptMatrix matrix,Nvfp4Activation.Packed input,float[] output) throws IOException {matrices.multiplyNvfp4(matrix,input,output);}
             };
             var fcE=Qwen4CpuLayers.matrix(index,reader,"mtp.fc_embedding",config.dim(),config.dim(),matrices);
@@ -137,16 +138,16 @@ public final class Qwen4MtpBlock implements AutoCloseable {
         try(var before=state.snapshot()) {
             try {
                 int rows=draft ? 1 : state.rows();float[] row=new float[config.dim()];embedding.readRow(token,row);hidden=fusion.forward(row,hidden,1);emit(trace,"fusion",hidden);
-                var mixed=attentionMix.mix(hidden,rows);emit(trace,"attention_mix",mixed.output());
+                var mixed=attentionMix.mix(hidden,rows,hcTrace(trace,"attn_hc_"));emit(trace,"attn_hc_normalized",mixed.normalized());emit(trace,"attention_mix",mixed.output());
                 float[] attended;
                 if(draft) {
                     int tail=state.position-state.capturedLength+1;int[] selected=Arrays.copyOf(state.capturedSelection,state.capturedSelection.length+tail);
                     for(int i=0;i<tail;i++) selected[state.capturedSelection.length+i]=state.capturedLength+i;
-                    attended=attention.forwardFrozen(mixed.output(),state.qsa,selected);
-                } else {if(state.position<state.prefillEnd) state.qsa.setPrefillQueryCount(rows);attended=attention.forward(mixed.output(),state.qsa,state.position<state.prefillEnd,state.position<state.freshEnd);}
+                    attended=attention.forwardFrozen(mixed.output(),state.qsa,selected,hcTrace(trace,"qsa_"));
+                } else {if(state.position<state.prefillEnd) state.qsa.setPrefillQueryCount(rows);attended=attention.forward(mixed.output(),state.qsa,state.position<state.prefillEnd,state.position<state.freshEnd,hcTrace(trace,"qsa_"));}
                 emit(trace,"attention",attended);hidden=attentionMix.combine(attended,mixed);emit(trace,"after_attention",hidden);
-                mixed=mlpMix.mix(hidden,rows);emit(trace,"mlp_mix",mixed.output());var routed=moe.forward(mixed.output()).output();emit(trace,"moe",routed);
-                hidden=mlpMix.combine(routed,mixed);emit(trace,"hyper_hidden",hidden);float[] output=mixer.mix(hidden,rows).output();emit(trace,"hidden",output);
+                mixed=mlpMix.mix(hidden,rows,hcTrace(trace,"mlp_hc_"));emit(trace,"mlp_hc_normalized",mixed.normalized());emit(trace,"mlp_mix",mixed.output());var routed=moe.forward(mixed.output()).output();emit(trace,"moe",routed);
+                hidden=mlpMix.combine(routed,mixed);emit(trace,"hyper_hidden",hidden);var finalMix=mixer.mix(hidden,rows,hcTrace(trace,"final_hc_"));emit(trace,"final_hc_normalized",finalMix.normalized());float[] output=finalMix.output();emit(trace,"hidden",output);
                 float[] logits=withLogits ? Qwen4CpuLayers.project(lmHead,output) : null;
                 if(logits!=null) Arrays.fill(logits,validVocabulary,logits.length,Float.NEGATIVE_INFINITY);
                 state.position++;state.drafting=draft;
@@ -157,6 +158,7 @@ public final class Qwen4MtpBlock implements AutoCloseable {
         }
     }
     private static void emit(BiConsumer<String,float[]> trace,String name,float[] values) {if(trace!=null) trace.accept(name,values.clone());}
+    private static BiConsumer<String,float[]> hcTrace(BiConsumer<String,float[]> trace,String prefix) {return trace==null ? null : (name,values)->emit(trace,prefix+name,values);}
     @Override public synchronized void close() throws IOException {
         if(closed) return;IOException failure=null;
         for(var state:List.copyOf(states)) try {state.close();} catch(IOException error) {if(failure==null) failure=error;else failure.addSuppressed(error);}

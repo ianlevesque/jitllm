@@ -54,11 +54,12 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
         final Set<Saved> snapshots=Collections.newSetFromMap(new IdentityHashMap<>());
         final float[] pendingHost;
         final int[][] pendingPositions;
-        final FloatArray projected,keyInput,valueInput,indexInput,pending,query,key,gate,indexQuery,pooled,normalizedPooled,output,table;
+        final FloatArray projected,keyInput,valueInput,indexInput,pending,query,key,gate,indexQuery,pooled,normalizedPooled,output,table,scores,probabilities,alpha,denominator,attended;
+        final Map<String,FloatArray> traceArrays=new LinkedHashMap<>();
         final IntArray positions,firstPosition,control,selected,diagnostic,frozenSelection;
         final Page[] pages;
         final GridScheduler scheduler=new GridScheduler();
-        final int selectionGraph,attentionGraph,diagnosticGraph,frozenGraph;
+        final int selectionGraph,attentionGraph,diagnosticGraph,frozenGraph,traceGraph;
         final TornadoExecutionPlan execution;
         long bytes,generation;
         int tokens,indexedThrough;
@@ -105,7 +106,7 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
                 positions=ints(3);firstPosition=ints(3);control=ints(6);
                 query=floats(shape.queryWidth());key=floats(shape.kvWidth());gate=floats(shape.queryWidth());
                 indexQuery=floats(shape.indexQueryWidth());pooled=floats(shape.indexDimension());normalizedPooled=floats(shape.indexDimension());
-                output=floats(shape.queryWidth());table=floats(256);for(int i=0;i<256;i++) table.set(i,FloatFormats.e4m3(i));
+                output=floats(shape.queryWidth());attended=floats(shape.queryWidth());table=floats(256);for(int i=0;i<256;i++) table.set(i,FloatFormats.e4m3(i));
                 FloatArray qw=floats(qNorm),kw=floats(kNorm),iqw=floats(iqNorm),ikw=floats(ikNorm),frequency=floats(frequencies);
                 IntArray axis=ints(axes),bestIndices=ints(512);var bestScores=floats(512);
                 selected=ints(shape.selectedCapacity());diagnostic=ints(selected.getSize());
@@ -128,14 +129,33 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
                         .transferToDevice(DataTransferMode.EVERY_EXECUTION,frozenSelection)
                         .task("select",FlashNextQsaKernels::frozenSelection,frozenSelection,selected));
                 int tileCapacity=(shape.selectedCapacity()+15)/16;
-                FloatArray scores=floats(shape.heads()*shape.selectedCapacity()),probabilities=floats(scores.getSize()),alpha=floats(shape.heads()*tileCapacity),denominator=floats(shape.heads());
-                attentionGraph=add(new TaskGraph(producer+"Attention").consumeFromDevice(producer,query,gate,gathered,control)
-                        .task("scores",FlashNextQsaKernels::attentionScores,query,gathered,scores,control,shape.dimension(),shape.kvHeads(),shape.heads(),shape.selectedCapacity(),fused ? 1 : 0)
+                scores=floats(shape.heads()*shape.selectedCapacity());probabilities=floats(scores.getSize());alpha=floats(shape.heads()*tileCapacity);denominator=floats(shape.heads());
+                String attentionName=producer+"Attention";
+                var attentionTasks=new TaskGraph(attentionName).consumeFromDevice(producer,query,gate,gathered,control)
+                        .task("scores",FlashNextQsaKernels::attentionScores,query,gathered,scores,control,shape.dimension(),shape.kvHeads(),shape.heads(),shape.selectedCapacity(),fused ? 1 : 0);
+                if(fused && shape.dimension()%16==0 && shape.heads()/shape.kvHeads()<=16) {
+                    int capacity=(shape.selectedCapacity()+31)/32*32;
+                    var packedKeys=bfloats(shape.kvHeads()*capacity*shape.dimension());var packedQueries=bfloats(shape.kvHeads()*16*shape.dimension());
+                    var gemmScores=floats(shape.kvHeads()*16*capacity);var alphaBeta=floats(2);alphaBeta.set(0,1);
+                    reserve(FlashNextBf16FloatLibrary.WORKSPACE_BYTES);
+                    attentionTasks.transferToDevice(DataTransferMode.FIRST_EXECUTION,packedKeys,packedQueries,gemmScores,alphaBeta)
+                            .task("packKeys",FlashNextQsaKernels::packScoreKeys,gathered,packedKeys,control,capacity,shape.dimension(),shape.kvHeads())
+                            .task("packQueries",FlashNextQsaKernels::packScoreQueries,query,packedQueries,control,shape.dimension(),shape.kvHeads())
+                            .libraryTask("scoresGemm",FlashNextBf16FloatLibrary::gqaScores,capacity,shape.dimension(),shape.kvHeads(),control,packedKeys,packedQueries,alphaBeta,gemmScores)
+                            .task("readScores",FlashNextQsaKernels::readScoreGemm,gemmScores,scores,control,shape.selectedCapacity(),capacity,shape.heads(),shape.kvHeads(),shape.dimension());
+                }
+                attentionGraph=add(attentionTasks
                         .task("probabilities",FlashNextQsaKernels::probabilities,scores,probabilities,alpha,denominator,control,shape.heads(),shape.selectedCapacity(),tileCapacity,fused ? 1 : 0)
-                        .task("attend",FlashNextQsaKernels::attend,gathered,probabilities,alpha,denominator,gate,output,control,shape.dimension(),shape.kvHeads(),shape.heads(),shape.selectedCapacity(),tileCapacity,fused ? 1 : 0)
-                        .transferToHost(DataTransferMode.EVERY_EXECUTION,output));
+                        .task("attend",FlashNextQsaKernels::attend,gathered,probabilities,alpha,denominator,gate,output,control,shape.dimension(),shape.kvHeads(),shape.heads(),shape.selectedCapacity(),tileCapacity,fused ? 1 : 0,attended)
+                        .persistOnDevice(scores,probabilities,attended).transferToHost(DataTransferMode.EVERY_EXECUTION,output));
                 diagnosticGraph=add(new TaskGraph(producer+"SelectionRead").consumeFromDevice(producer,selected)
                         .task("copy",FlashNextQsaKernels::copySelection,selected,diagnostic).transferToHost(DataTransferMode.EVERY_EXECUTION,diagnostic));
+                var trace=new TaskGraph(producer+"Trace").consumeFromDevice(producer,query,key,gate).consumeFromDevice(producer+"Attention",scores,probabilities,attended);
+                for(var pair:List.of(Map.entry("normalized_query",query),Map.entry("normalized_key",key),Map.entry("gate",gate),Map.entry("attended",attended),Map.entry("scores",scores),Map.entry("probabilities",probabilities))) {
+                    var target=floats(pair.getValue().getSize());traceArrays.put(pair.getKey(),target);
+                    trace.task(pair.getKey(),org.beehive.jitllm.backend.tornado.kernels.FlashNextMoeKernels::readWeights,pair.getValue(),target);
+                }
+                traceGraph=add(trace.transferToHost(DataTransferMode.EVERY_EXECUTION,(Object[])traceArrays.values().toArray(FloatArray[]::new)));
                 execution=new TornadoExecutionPlan(graphs.toArray(ImmutableTaskGraph[]::new)).withDevice(device).withProfiler(ProfilerMode.SILENT).withGridScheduler(scheduler);
             } catch(RuntimeException|Error failure) {arena.close();throw failure;}
         }
@@ -148,9 +168,9 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
         BFloat16Array bfloats(int count) {long n=TornadoNativeArray.ARRAY_HEADER+2L*count;reserve(n);return BFloat16Array.fromSegmentShallow(arena.allocate(n,32));}
         int add(TaskGraph graph) {int index=graphs.size();graphs.add(graph.snapshot());return index;}
         void requireOpen() {if(released || closed) throw new IllegalStateException("QSA session is closed");}
-        void run(int graph) throws IOException {
+        TornadoExecutionResult run(int graph) throws IOException {
             requireOpen();
-            try {long nanos=execution.withGraph(graph).execute().getProfilerResult().getDeviceKernelTime();if(nanos<=0) throw new IOException("QSA graph recorded no CUDA kernel");kernelNanos+=nanos;}
+            try {var result=execution.withGraph(graph).execute();long nanos=result.getProfilerResult().getDeviceKernelTime();if(nanos<=0) throw new IOException("QSA graph recorded no CUDA kernel");kernelNanos+=nanos;return result;}
             catch(RuntimeException failure) {throw new IOException("GPU QSA graph "+graph+" failed",failure);}
         }
         @Override public int tokens() {return tokens;}
@@ -196,6 +216,17 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
                 else lastSelection=frozen.clone();
                 float[] result=new float[output.getSize()];for(int i=0;i<result.length;i++) result[i]=output.get(i);
                 tokens=visible;if(frozen==null) indexedThrough=tokens;freshActive=fresh;forwards++;return result;
+            }
+        }
+        @Override public Map<String,float[]> intermediates() throws IOException {
+            synchronized(FlashNextQsaExecutor.this) {
+                requireOpen();if(tokens==0) throw new IllegalStateException("No QSA forward to trace");run(traceGraph);
+                var result=new LinkedHashMap<String,float[]>();int count=lastSelection.length;
+                for(var pair:traceArrays.entrySet()) {
+                    boolean compact=pair.getKey().equals("scores") || pair.getKey().equals("probabilities");
+                    float[] row=new float[compact ? shape.heads()*count : pair.getValue().getSize()];
+                    for(int i=0;i<row.length;i++) row[i]=pair.getValue().get(compact ? i/count*shape.selectedCapacity()+i%count : i);result.put(pair.getKey(),row);
+                }return result;
             }
         }
         private final class Saved implements Snapshot {

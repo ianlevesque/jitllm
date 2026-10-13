@@ -1,0 +1,27 @@
+{
+  "java_suite": {
+    "tests": 810,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "launcher_tests": 112,
+  "matching_overlay_clone_fork_files": 109,
+  "hc_fp32_projection_cases": 12,
+  "hc_fp32_outputs_exact": true,
+  "qsa_fresh_steps": 12,
+  "qsa_decode_steps": 12,
+  "qsa_original_tolerance_passed": true,
+  "bf16_distinct_row_cases": 6,
+  "bf16_outputs_exact": true,
+  "frozen_qsa_boundary_check_passed": true,
+  "normal_gpu_api_passed": true,
+  "normal_gpu_api_concurrent_callers": 3,
+  "normal_gpu_api_reset_replay_exact": true,
+  "normal_gpu_api_elapsed_seconds": 452.320027683,
+  "normal_gpu_api_bf16_float_gemms": 288072,
+  "native_resources_after_close": 0,
+  "full_mtp_activation_comparison_passed": false,
+  "full_mtp_failed_stage_checks": 20,
+  "target_verification_acceptance_loop_implemented": false
+}

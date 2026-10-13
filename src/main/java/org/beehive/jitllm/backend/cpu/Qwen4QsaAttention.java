@@ -178,13 +178,22 @@ public final class Qwen4QsaAttention {
     public float[] forward(float[] hidden,State state,boolean prefill,boolean freshPrefill) throws IOException {
         int position=state.tokens();return forward(hidden,new int[]{position,position,position},state,prefill,freshPrefill);
     }
+    public float[] forward(float[] hidden,State state,boolean prefill,boolean freshPrefill,java.util.function.BiConsumer<String,float[]> trace) throws IOException {
+        int position=state.tokens();return forward(hidden,new int[]{position,position,position},state,prefill,freshPrefill,null,trace);
+    }
     public float[] forward(float[] hidden,int[] ropePositions,State state,boolean prefill,boolean freshPrefill) throws IOException {
         return forward(hidden,ropePositions,state,prefill,freshPrefill,null);
     }
     public float[] forwardFrozen(float[] hidden,State state,int[] selection) throws IOException {
         int position=state.tokens();return forward(hidden,new int[]{position,position,position},state,false,false,selection);
     }
+    public float[] forwardFrozen(float[] hidden,State state,int[] selection,java.util.function.BiConsumer<String,float[]> trace) throws IOException {
+        int position=state.tokens();return forward(hidden,new int[]{position,position,position},state,false,false,selection,trace);
+    }
     private float[] forward(float[] hidden,int[] ropePositions,State state,boolean prefill,boolean freshPrefill,int[] frozen) throws IOException {
+        return forward(hidden,ropePositions,state,prefill,freshPrefill,frozen,null);
+    }
+    private float[] forward(float[] hidden,int[] ropePositions,State state,boolean prefill,boolean freshPrefill,int[] frozen,java.util.function.BiConsumer<String,float[]> trace) throws IOException {
         state.requireOpen();
         if(state.device==null && frozen==null && state.indexedThrough!=state.tokens()) throw new IllegalArgumentException("Restore indexed prefix before draft extend");
         if(freshPrefill && !prefill) throw new IllegalArgumentException("Fresh KV requires prefill");
@@ -196,10 +205,13 @@ public final class Qwen4QsaAttention {
                 throw new IllegalArgumentException("Invalid frozen sparse capacity");
             var seen=new HashSet<Integer>();for(int token:frozen) if(token<0 || token>state.tokens() || !seen.add(token)) throw new IllegalArgumentException("Invalid frozen sparse token");
         }
-        if(state.device!=null && frozen!=null) return Qwen4CpuLayers.project(out,state.device.forwardFrozen(Qwen4CpuLayers.project(q,hidden),Qwen4CpuLayers.project(k,hidden),
-                Qwen4CpuLayers.project(v,hidden),ropePositions,frozen));
-        if(state.device!=null) return Qwen4CpuLayers.project(out,state.device.forward(Qwen4CpuLayers.project(q,hidden),Qwen4CpuLayers.project(k,hidden),
-                Qwen4CpuLayers.project(v,hidden),Qwen4CpuLayers.project(index,hidden),ropePositions,prefill,freshPrefill,state.prefillBlockSize));
+        if(state.device!=null) {
+            var qp=Qwen4CpuLayers.project(q,hidden);var kp=Qwen4CpuLayers.project(k,hidden);var vp=Qwen4CpuLayers.project(v,hidden);
+            var ip=frozen==null ? Qwen4CpuLayers.project(index,hidden) : null;
+            if(trace!=null) {trace.accept("q_projection",qp.clone());trace.accept("k_projection",kp.clone());trace.accept("v_projection",vp.clone());if(ip!=null) trace.accept("index_projection",ip.clone());}
+            var gated=frozen==null ? state.device.forward(qp,kp,vp,ip,ropePositions,prefill,freshPrefill,state.prefillBlockSize) : state.device.forwardFrozen(qp,kp,vp,ropePositions,frozen);
+            if(trace!=null) {trace.accept("gated_heads",gated.clone());for(var stage:state.device.intermediates().entrySet()) trace.accept(stage.getKey(),stage.getValue());}return Qwen4CpuLayers.project(out,gated);
+        }
         int head=config.headSize(),heads=config.numberOfHeads();
         float[] projected=Qwen4CpuLayers.project(q,hidden),query=new float[heads*head],gate=new float[heads*head];
         for(int h=0;h<heads;h++) {

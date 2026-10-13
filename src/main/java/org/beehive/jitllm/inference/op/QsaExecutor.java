@@ -31,6 +31,7 @@ public interface QsaExecutor {
             throw new UnsupportedOperationException("Frozen MTP sparse selection is unavailable");
         }
         int[] selectedTokens() throws IOException;
+        default java.util.Map<String,float[]> intermediates() throws IOException {throw new UnsupportedOperationException("QSA stage traces are unavailable");}
         Snapshot snapshot() throws IOException;
         void restore(Snapshot snapshot) throws IOException;
         void reset() throws IOException;

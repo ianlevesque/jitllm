@@ -23,6 +23,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
     private final TornadoDevice device;
     private final long budget;
     private final FlashNextBf16MatrixExecutor bf16;
+    private final FlashNextBf16FloatMatrixExecutor bf16Float;
     private final FlashNextNvfp4MatrixExecutor nvfp4;
     private final LinkedHashMap<ModelOptMatrix,Entry> cache=new LinkedHashMap<>(16,.75f,true);
     private long resident,uploads,evictions,executions,kernelNanos,graphId;
@@ -37,7 +38,9 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         this.device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);
         this.budget=nativeNvfp4 ? budget/2 : budget;
         nvfp4=nativeNvfp4 ? new FlashNextNvfp4MatrixExecutor(device,budget-this.budget) : null;
-        bf16=new FlashNextBf16MatrixExecutor(device,Math.min(budget,256L<<20));
+        long bfBudget=Math.min(budget,256L<<20),floatBudget=bfBudget<2 ? 0 : Math.max(1,bfBudget/4);
+        bf16=new FlashNextBf16MatrixExecutor(device,bfBudget-floatBudget);
+        bf16Float=floatBudget==0 ? null : new FlashNextBf16FloatMatrixExecutor(deviceIndex,floatBudget);
     }
     public String deviceName() { return device.getPhysicalDevice().getDeviceName(); }
     @Override public boolean quantizesNvfp4OnDevice() {return nvfp4!=null;}
@@ -45,8 +48,9 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         var extra=bf16.statistics();var packed=nvfp4==null ? null : nvfp4.statistics();
         return new Statistics(resident+(packed==null ? 0 : packed.residentBytes()),uploads+(packed==null ? 0 : packed.uploads()),evictions+(packed==null ? 0 : packed.evictions()),
                 executions+(packed==null ? 0 : packed.executions()),kernelNanos+(packed==null ? 0 : packed.kernelNanos()),cache.size()+(packed==null ? 0 : packed.matrices()),
-                extra.residentBytes(),extra.executions(),packed==null ? 0 : packed.residentBytes(),packed==null ? 0 : packed.executions());
+                extra.residentBytes()+(bf16Float==null ? 0 : bf16Float.statistics().residentBytes()),extra.executions()+(bf16Float==null ? 0 : bf16Float.statistics().executions()),packed==null ? 0 : packed.residentBytes(),packed==null ? 0 : packed.executions());
     }
+    public synchronized FlashNextBf16FloatMatrixExecutor.Statistics bf16FloatStatistics() {return bf16Float==null ? new FlashNextBf16FloatMatrixExecutor.Statistics(0,0,0,0,0,0) : bf16Float.statistics();}
 
     // PRIVATE mappings let Tornado's array header occupy a private copy of the preceding
     // bytes. No checkpoint bytes are changed, and no full host weight copy is required.
@@ -160,6 +164,13 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         if(matrix.dtype().equals("BF16")) bf16.multiplyRow(matrix,input,output,prefillRows);
         else MatrixExecutor.super.multiplyBf16(matrix,input,output,prefillRows);
     }
+    @Override public synchronized void multiplyBf16Float(ModelOptMatrix matrix,float[] input,float[] output,int partition) throws IOException {
+        if(closed) throw new IOException("GPU projection cache is closed");
+        if(matrix.dtype().equals("BF16") && matrix.rows()%16==0 && partition%16==0) {
+            if(bf16Float==null) throw new IOException("GPU projection budget cannot hold an FP32-accumulator workspace");
+            bf16Float.multiply(matrix,input,output,partition);
+        } else MatrixExecutor.super.multiplyBf16Float(matrix,input,output,partition);
+    }
     @Override public synchronized void multiplyBf16Batch(ModelOptMatrix matrix,float[] input,float[] output,int rows) throws IOException {
         if(closed) throw new IOException("GPU projection cache is closed");
         if(matrix.dtype().equals("BF16")) bf16.multiplyBatch(matrix,input,output,rows);
@@ -180,6 +191,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         }
         cache.clear();resident=0;
         try {bf16.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
+        if(bf16Float!=null) try {bf16Float.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         if(nvfp4!=null) try {nvfp4.close();} catch(IOException closing) {if(failure==null) failure=closing;else failure.addSuppressed(closing);}
         if(failure!=null) throw failure;
     }

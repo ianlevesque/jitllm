@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "captured_length": 2063,
+  "captured_selection": 2051,
+  "selected_capacity": 2054,
+  "draft_steps": 3,
+  "rollback_replay_exact": true,
+  "draft_index_download_bytes": 0,
+  "pages_reached": 2,
+  "kv_download_bytes": 0,
+  "kernel_ns": 1937253207,
+  "resources_after_close": 0
+}

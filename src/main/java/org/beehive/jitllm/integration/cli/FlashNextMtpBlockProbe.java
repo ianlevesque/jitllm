@@ -68,7 +68,7 @@ public final class FlashNextMtpBlockProbe {
             var expired=state.snapshot();expired.close();try {state.restore(expired);throw new AssertionError("Disposed MTP snapshot accepted");} catch(IllegalArgumentException expected) {}
             var gpuQsa=qsa.statistics();var gpuExperts=experts.statistics();var gpuFusion=fusion.statistics();
             state.close();block.close();matrices.close();layers.close();qsa.close();experts.close();fusion.close();
-            if(qsa.statistics().reservedBytes()!=0 || experts.statistics().residentBytes()!=0 || fusion.statistics().residentBytes()!=0 || layers.statistics().residentBytes()!=0
+            if(FlashNextBf16FloatLibrary.statistics().contexts()!=0 || FlashNextBf16FloatLibrary.statistics().plans()!=0 || qsa.statistics().reservedBytes()!=0 || experts.statistics().residentBytes()!=0 || fusion.statistics().residentBytes()!=0 || layers.statistics().residentBytes()!=0
                     || FlashNextRmsNormLibrary.statistics().contexts()!=0 || FlashNextFp8Library.statistics().contexts()!=0 || FlashNextFp8Library.statistics().plans()!=0 || FlashNextFp8Library.registeredWeights()!=0) throw new AssertionError("MTP native resources leaked");
             var result=new LinkedHashMap<String,Object>();result.put("teacher",teacher);result.put("drafts",drafts);result.put("rollback_exact",true);result.put("reset_exact",true);result.put("failure_retry_exact",true);
             result.put("draft_steps",3);result.put("native_calls",FlashNextFp8Library.statistics().calls());result.put("moe_forwards",gpuExperts.forwards());

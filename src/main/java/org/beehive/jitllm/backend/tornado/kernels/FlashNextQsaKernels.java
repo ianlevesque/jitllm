@@ -156,6 +156,28 @@ public final class FlashNextQsaKernels {
             }
         }
     }
+    public static void packScoreKeys(BFloat16Array gathered,BFloat16Array keys,IntArray control,int capacity,int dimension,int kvHeads) {
+        for(@Parallel int i=0;i<keys.getSize();i++) {
+            int group=i/(capacity*dimension),token=i/dimension%capacity,column=i%dimension;
+            keys.set(i,token<control.get(2) ? gathered.get(token*2*kvHeads*dimension+group*dimension+column) : (short)0);
+        }
+    }
+    public static void packScoreQueries(FloatArray query,BFloat16Array packed,IntArray control,int dimension,int kvHeads) {
+        int groupHeads=query.getSize()/dimension/kvHeads;
+        for(@Parallel int i=0;i<packed.getSize();i++) {
+            int group=i/(16*dimension),head=i/dimension%16,column=i%dimension;
+            float value=head<groupHeads ? query.get((group*groupHeads+head)*dimension+column) : 0;
+            if(control.get(3)==1) value=bf(value/(float)TornadoMath.sqrt((double)dimension)*1.4426950408f);
+            packed.set(i,bits(value));
+        }
+    }
+    public static void readScoreGemm(FloatArray input,FloatArray scores,IntArray control,int capacity,int gemmCapacity,int heads,int kvHeads,int dimension) {
+        int groupHeads=heads/kvHeads,rows=(control.get(2)+31)/32*32;
+        for(@Parallel int i=0;i<scores.getSize();i++) {
+            int head=i/capacity,token=i%capacity,group=head/groupHeads,within=head%groupHeads;
+            if(token<control.get(2)) {float value=input.get(group*16*gemmCapacity+within*rows+token);scores.set(i,control.get(3)==1 ? value : value/(float)TornadoMath.sqrt((double)(dimension)));}
+        }
+    }
     public static void probabilities(FloatArray scores,FloatArray probabilities,FloatArray alpha,FloatArray denominator,IntArray control,int heads,int capacity,int tileCapacity,int fused) {
         for(@Parallel int head=0;head<heads;head++) {
             int count=control.get(2);
@@ -179,7 +201,7 @@ public final class FlashNextQsaKernels {
         }
     }
     public static void attend(BFloat16Array gathered,FloatArray probabilities,FloatArray alpha,FloatArray denominator,FloatArray gate,FloatArray output,IntArray control,
-                                int dimension,int kvHeads,int heads,int capacity,int tileCapacity,int fused) {
+                                int dimension,int kvHeads,int heads,int capacity,int tileCapacity,int fused,FloatArray attended) {
         for(@Parallel int index=0;index<output.getSize();index++) {
             int head=index/dimension,column=index%dimension,keyHead=head/(heads/kvHeads),count=control.get(2);
             float sum=0;
@@ -193,6 +215,7 @@ public final class FlashNextQsaKernels {
                 sum/=denominator.get(head);
             } else for(int row=0;row<count;row++) sum+=probabilities.get(head*capacity+row)*unbits(gathered.get(row*2*kvHeads*dimension+kvHeads*dimension+keyHead*dimension+column));
             float sigmoid=(float)(1/(1+TornadoMath.exp(-(double)gate.get(index))));
+            attended.set(index,bf(sum));
             output.set(index,bf(bf(sum)*(fused==1 ? sigmoid : bf(sigmoid))));
         }
     }

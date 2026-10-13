@@ -118,6 +118,10 @@ public final class ModelOptMatrix {
         }
     }
 
+    public void multiplyBf16Float(float[] input,float[] output,int partition) throws IOException {
+        if(input.length!=columns || output.length!=rows || partition<=0 || columns%partition!=0) throw new IllegalArgumentException("Invalid FP32-accumulator projection");
+        if(executor!=null) executor.multiplyBf16Float(this,input,output,partition);else multiply(input,output);
+    }
     public void multiplyBf16Batch(float[] input,float[] output,int batch) throws IOException {
         if(batch<=0 || input.length!=Math.multiplyExact(batch,columns) || output.length!=Math.multiplyExact(batch,rows))
             throw new IllegalArgumentException("Invalid BF16 matrix batch");

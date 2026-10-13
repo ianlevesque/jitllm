@@ -167,9 +167,10 @@ workspace, matching the staged runtime. HC combine retains F32 accumulation
 across the tested row counts. The sequential diagnostic runner repeats its
 current row to obtain the same GEMM geometry; efficient batched prefill still
 needs to use distinct rows and keep activations on the device. The separate
-BF16 GEMM cache is capped at min(main matrix cache budget, 256 MiB), including
-workspaces. Plans are owned by their caller thread so stream changes cannot
-reset a shared cuBLAS workspace.
+BF16 GEMM caches together are capped at min(main matrix cache budget, 256 MiB),
+including workspaces: three quarters for BF16 stores and one quarter for FP32
+stores. Plans are owned by their caller thread so stream changes cannot reset
+a shared cuBLAS workspace.
 
 `gpu-bf16-batch-parity.json` verifies the distinct-row native GEMM primitive on
 both real HC matrices at batches 1, 33 and 64. All six cases match PyTorch
@@ -178,6 +179,29 @@ preservation and zero tracked memory after close. This adds BF16 tensor-core
 execution; packed NVFP4 tensor-core execution is still required.
 The `pre-gemm` and `pre-workspace` HC reports preserve the earlier strict
 failures at 33 and 1,024 rows and the traces that identified their causes.
+
+Small-row HC down/up projections now use BF16 tensor-core operands with FP32
+output. Down projection splits K into 256-element partitions and adds the FP32
+partials in order; up projection keeps the full K dimension. This avoids an
+intermediate BF16 store. `gpu-hc-f32-projection-portable-parity.json` checks the
+real target and MTP attention-HC matrices across three inputs each: all 12
+results match CUDA BF16/FP32 GEMMs exactly, including replay, caller-thread
+changes and resource release. Run it with
+`verify_jitllm_hc_projection.py` through the portable runtime wrapper.
+
+Fused QSA score calculation now packs selected BF16 keys and grouped queries
+for native BF16/FP32 GEMMs. Prefill retains the staged BF16-scaled query;
+decode scales the FP32 result. Shapes with unsupported tensor-core dimensions
+retain the scalar score calculation. Optional stage tracing downloads copied
+normalization, score, probability and attention buffers only when requested.
+
+`gpu-qsa-tensorcore-fresh-regression.json` and
+`gpu-qsa-tensorcore-decode-regression.json` repeat both existing 12-step real-layer
+checks at the original rtol 0.016 / atol 0.004. Both pass with a maximum absolute
+output difference of 0.0078125, exact rollback/reset and zero reservations after
+close. `gpu-qsa-draft-tensorcore-regression.json` repeats the frozen-selection
+page boundary check and passes. `gpu-bf16-cache-split-regression.json` repeats
+all six distinct-row BF16 GEMMs after splitting the cache; outputs remain exact.
 
 `full-gpu-hc-ple-rollback-conformance.json` repeats the 16-token ChatML case
 with GPU HC/PLE and DeltaNet enabled, including an injected layer-20 failure.
@@ -409,6 +433,22 @@ skips), 112 launcher tests and 106 matching source files.
 `gpu-api-mtp-regression.json` repeats the three-caller normal CUDA API case and
 reset/replay; all four results remain `[17, 478, 220]`, resources return to zero,
 and the run takes about 267 seconds. This remains a short 4,096-capacity test.
+
+`gpu-mtp-all-tensorcore-scores.json` records the latest synthetic block check
+with the FP32 HC projections and tensor-core QSA scores. The four checked greedy
+IDs still match and rollback/reset/failure retry and native resource release
+pass. Activation failures fell from 45 to 20 stage checks; the original
+rtol 0.016 / atol 0.004 gate still fails. This report preserves that failure.
+
+`hc-qsa-regression-tests.json` records 810 Java tests (zero failures/errors,
+three skips), 112 launcher tests and 109 matching source files.
+`gpu-api-hc-qsa-regression.json` repeats the three-caller normal CUDA API check
+with the new HC/QSA projections: all callers and reset/replay emit
+`[17, 478, 220]`, with no checkpoint descriptors or native contexts/plans after
+close. It executes 288,072 BF16/FP32 GEMMs and takes about
+452 seconds, versus about 267 seconds in the preceding report.
+The partitioned small-row path improves accumulation fidelity; this sequential
+implementation still needs batching and fusion for throughput.
 
 Target verification/acceptance, rejection correction, stochastic sampling,
 real target-derived draft trajectories and batched verification are still
