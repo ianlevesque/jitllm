@@ -102,13 +102,19 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
     @Override public synchronized HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization) {
         requireOpen();
         if(lowrank<=0 || normalization.length!=shape.width()) throw new IllegalArgumentException("Wrong GPU HC shape/weights");
-        return register(new Hyper(shape,lowrank,normalization));
+        return register(new Hyper(shape,lowrank,normalization,null));
+    }
+    @Override public synchronized HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights) {
+        requireOpen();
+        if(lowrank<=0 || normalization.length!=shape.width() || (injectionWeights!=null && injectionWeights.length!=Math.multiplyExact(shape.branches(),shape.width())))
+            throw new IllegalArgumentException("Wrong GPU HC shape/weights");
+        return register(new Hyper(shape,lowrank,normalization,injectionWeights));
     }
     private final class Hyper extends Owned implements HyperConnection {
         final FloatArray normInput,normOutput,low,mixInput,gates,mixed,block,residual,injection,combined;
         final IntArray lowFused,mixFused;
-        final TornadoExecutionPlan normalizePlan,lowPlan,mixPlan,combinePlan;
-        Hyper(GroupedShape shape,int lowrank,float[] normalization) {
+        final TornadoExecutionPlan normalizePlan,lowPlan,mixPlan,combinePlan,nativeCombinePlan;
+        Hyper(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights) {
             try {
                 normInput=array(shape.width());normOutput=array(shape.width());var weights=array(normalization);
                 low=array(lowrank);lowFused=control(1);
@@ -131,6 +137,14 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
                 combinePlan=plan(new TaskGraph(id+"Combine").transferToDevice(DataTransferMode.EVERY_EXECUTION,block,residual,injection)
                         .task("combine",FlashNextLayerKernels::combine,block,residual,injection,combined,shape.branches())
                         .transferToHost(DataTransferMode.UNDER_DEMAND,combined));
+                if(injectionWeights!=null && shape.dimension()%8==0 && shape.width()%2048==0) {
+                    var injectWeights=array(injectionWeights);
+                    nativeCombinePlan=plan(new TaskGraph(id+"NativeCombine").transferToDevice(DataTransferMode.FIRST_EXECUTION,injectWeights)
+                            .transferToDevice(DataTransferMode.EVERY_EXECUTION,block,residual,mixInput)
+                            .libraryTask("combine",FlashNextRmsNormLibrary::combine,shape.branches(),shape.dimension(),block,residual,mixInput,injectWeights,combined)
+                            .task("boundary",org.beehive.jitllm.backend.tornado.kernels.FlashNextMoeKernels::bf16Boundary,combined)
+                            .transferToHost(DataTransferMode.UNDER_DEMAND,combined));
+                } else nativeCombinePlan=null;
             } catch(RuntimeException|Error failure) {failed(failure);throw failure;}
         }
         @Override public float[] normalize(float[] hidden) throws IOException {
@@ -146,6 +160,12 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
         @Override public float[] combine(float[] blockValues,float[] residualValues,float[] projectedInjection) throws IOException {
             synchronized(FlashNextLayerExecutor.this) {check();put(block,blockValues);put(residual,residualValues);put(injection,projectedInjection);
                 run(combinePlan).transferToHost(combined);hyperCombines++;return read(combined);}
+        }
+        @Override public boolean projectsInjection() {return nativeCombinePlan!=null;}
+        @Override public float[] combineNormalized(float[] blockValues,float[] residualValues,float[] normalized) throws IOException {
+            synchronized(FlashNextLayerExecutor.this) {check();if(nativeCombinePlan==null) throw new UnsupportedOperationException("Native HC injection is unavailable");
+                put(block,blockValues);put(residual,residualValues);put(mixInput,normalized);
+                run(nativeCombinePlan).transferToHost(combined);hyperCombines++;return read(combined);}
         }
     }
 

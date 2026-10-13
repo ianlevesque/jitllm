@@ -26,6 +26,8 @@ public interface FlashNextLayerExecutor {
         float[] activateLow(float[] projected,boolean fused) throws IOException;
         float[] mix(float[] normalized,float[] projectedGates,boolean fused) throws IOException;
         float[] combine(float[] block,float[] residual,float[] projectedInjection) throws IOException;
+        default boolean projectsInjection() {return false;}
+        default float[] combineNormalized(float[] block,float[] residual,float[] normalized) throws IOException {throw new UnsupportedOperationException("Native HC injection is unavailable");}
         @Override void close() throws IOException;
     }
     interface Snapshot extends AutoCloseable {@Override void close();}
@@ -38,5 +40,6 @@ public interface FlashNextLayerExecutor {
         @Override void close() throws IOException;
     }
     HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization);
+    default HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights) {return newHyperConnection(shape,lowrank,normalization);}
     PleSession newPleSession(PleShape shape,float[] keyNorm,float[] queryNorm,float[] convolutionNorm,float[] convolution);
 }

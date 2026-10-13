@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "scope": "Exported C ABI feasibility check on Torch-owned CUDA buffers. Java/TornadoVM integration remains required.",
+  "flashinfer_version": "0.6.18",
+  "device": "NVIDIA GeForce RTX 5090",
+  "library": "/home/ian/.cache/flashinfer/0.6.18/120f/cached_ops/xqa_input_bf16_kv_cache_bf16_output_bf16_page_size_64_head_dim_256_head_group_ratio_12_use_sliding_window_False_use_spec_dec_False_spec_q_seq_len_1/xqa_input_bf16_kv_cache_bf16_output_bf16_page_size_64_head_dim_256_head_group_ratio_12_use_sliding_window_False_use_spec_dec_False_spec_q_seq_len_1.so",
+  "cases": [
+    {
+      "selected_tokens": 6,
+      "ffi_status": 0,
+      "exact": true,
+      "max_error": 0.0,
+      "workspace_bytes": 16777216
+    },
+    {
+      "selected_tokens": 2054,
+      "ffi_status": 0,
+      "exact": true,
+      "max_error": 0.0,
+      "workspace_bytes": 16777216
+    }
+  ],
+  "library_sha256": "abf5c5366df05f4770c966dd8e6174ebfa43f146dea87216c855a9d98a87dc36"
+}

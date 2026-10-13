@@ -1,0 +1,34 @@
+{
+  "java_suite": {
+    "tests": 810,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "launcher_tests": 112,
+  "matching_overlay_clone_fork_files": 109,
+  "hc_row_geometries": [
+    1,
+    17,
+    33,
+    1024
+  ],
+  "hc_normalization_mix_combine_exact": true,
+  "ple_original_tolerance_passed": true,
+  "native_mtp_teacher_stage_gate_passed": true,
+  "native_mtp_draft_stage_gate_passed": false,
+  "mtp_failed_draft_stage_checks": 20,
+  "staged_mtp_reference_replay_exact": true,
+  "decode_reference": "FlashInfer paged BF16 decode over FP8-rounded KV (XQA on SM120)",
+  "normal_gpu_api_passed": true,
+  "normal_gpu_api_callers": 3,
+  "normal_gpu_api_reset_replay_exact": true,
+  "normal_gpu_api_elapsed_seconds": 449.852515426,
+  "xqa_c_entry_cases_exact": [
+    6,
+    2054
+  ],
+  "xqa_c_entry_workspace_bytes": 16777216,
+  "java_xqa_binding_implemented": false,
+  "target_verification_acceptance_loop_implemented": false
+}

@@ -73,7 +73,12 @@ public final class Qwen4CpuLayers {
             down=matrix(index,reader,prefix+".input_mix_weight_down",config.hcLowrank(),config.hyperDim(),executor);
             up=matrix(index,reader,prefix+".input_mix_weight_up",config.hyperDim(),config.hcLowrank(),executor);
             inject=combine ? matrix(index,reader,prefix+".block_inject_weight",config.hcCount(),config.hyperDim(),executor) : null;
-            device=layerExecutor==null ? null : layerExecutor.newHyperConnection(new FlashNextLayerExecutor.GroupedShape(config.dim(),config.hcCount(),config.rmsNormEps()),config.hcLowrank(),norm);
+            float[] injectionWeights=null;
+            if(layerExecutor!=null && inject!=null && inject.dtype().equals("BF16") && config.dim()%8==0 && config.hyperDim()%2048==0) {
+                injectionWeights=new float[Math.multiplyExact(inject.rows(),inject.columns())];var row=new float[inject.columns()];
+                for(int branch=0;branch<inject.rows();branch++) {inject.readRow(branch,row);System.arraycopy(row,0,injectionWeights,branch*row.length,row.length);}
+            }
+            device=layerExecutor==null ? null : layerExecutor.newHyperConnection(new FlashNextLayerExecutor.GroupedShape(config.dim(),config.hcCount(),config.rmsNormEps()),config.hcLowrank(),norm,injectionWeights);
         }
         public Mixed mix(float[] input) throws IOException {
             return mix(input,1);
@@ -113,6 +118,7 @@ public final class Qwen4CpuLayers {
         public float[] combine(float[] block,Mixed mixed) throws IOException {
             if(closed) throw new IllegalStateException("Hyper-connection is closed");
             if(inject==null || block.length!=config.dim()) throw new IllegalArgumentException("Hyper-connection combine is unavailable or has wrong width");
+            if(device!=null && device.projectsInjection()) return device.combineNormalized(block,mixed.residual(),mixed.normalized());
             float[] weights=new float[inject.rows()],output=new float[config.hyperDim()];inject.multiply(mixed.normalized(),weights);
             if(device!=null) return device.combine(block,mixed.residual(),weights);
             for(int branch=0; branch<config.hcCount(); branch++) {

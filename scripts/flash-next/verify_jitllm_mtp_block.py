@@ -19,7 +19,7 @@ from verify_jitllm_fp8_moe import projection
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
-def verify(model, device=1, trace_output=None, reference_replay_only=False):
+def verify(model, device=1, trace_output=None, reference_replay_only=False, decode_reference="staged"):
     torch.set_num_threads(4)
     torch.cuda.set_device(next(i for i in range(torch.cuda.device_count()) if "5090" in torch.cuda.get_device_name(i)))
     mapping = json.loads((model / "model.safetensors.index.json").read_text())["weight_map"]
@@ -63,6 +63,10 @@ def verify(model, device=1, trace_output=None, reference_replay_only=False):
     frequency = 1 / config["rope_parameters"]["rope_theta"] ** (torch.arange(0, rotary, 2, device="cuda", dtype=torch.float32) / rotary)
     keys, vals, fresh_keys, fresh_vals, queries, selections, pending, compressed = [], [], [], [], [], [], [], []
     captured = None
+    decode_workspace = None
+    if decode_reference == "staged":
+        from flashinfer.decode import trtllm_batch_decode_with_kv_cache
+        decode_workspace = torch.zeros(128 * 1024 * 1024, device="cuda", dtype=torch.uint8)
 
     def norm(x, w):
         return x.float() * torch.rsqrt(x.float().square().mean(-1, keepdim=True) + eps) * (1 + w.float())
@@ -116,10 +120,26 @@ def verify(model, device=1, trace_output=None, reference_replay_only=False):
             captured = selected.copy()
         selections.append(selected)
         if draft:
-            cached_k = torch.stack(keys)[selected].repeat_interleave(heads // kvheads, 1)
-            cached_v = torch.stack(vals)[selected].repeat_interleave(heads // kvheads, 1)
-            scores = torch.einsum("hd,nhd->hn", q.float(), cached_k.float()) / width ** .5
-            attended = torch.einsum("hn,nhd->hd", torch.softmax(scores, -1), cached_v).bfloat16()
+            if decode_reference == "staged":
+                # QSA's SM120 paged path dequantizes the FP8 pool into BF16,
+                # pads every selected row to 64-token pages, and calls the staged FlashInfer decode API.
+                stride = ((config["indexer_budget"] + ratio - 1 + 3 + 63) // 64) * 64
+                packed_k = torch.zeros((stride, kvheads, width), device="cuda", dtype=torch.bfloat16)
+                packed_v = torch.zeros_like(packed_k)
+                packed_k[:len(selected)] = torch.stack(keys)[selected].bfloat16()
+                packed_v[:len(selected)] = torch.stack(vals)[selected].bfloat16()
+                kc = packed_k.view(-1, 64, kvheads, width).permute(0, 2, 1, 3)
+                vc = packed_v.view(-1, 64, kvheads, width).permute(0, 2, 1, 3)
+                attended = trtllm_batch_decode_with_kv_cache(
+                    query=q.unsqueeze(0).contiguous(), kv_cache=(kc, vc), workspace_buffer=decode_workspace,
+                    block_tables=torch.arange(stride // 64, device="cuda", dtype=torch.int32).reshape(1, -1),
+                    seq_lens=torch.tensor([len(selected)], device="cuda", dtype=torch.int32),
+                    max_seq_len=stride, bmm1_scale=width ** -.5, bmm2_scale=1.)[0]
+            else:
+                cached_k = torch.stack(keys)[selected].repeat_interleave(heads // kvheads, 1)
+                cached_v = torch.stack(vals)[selected].repeat_interleave(heads // kvheads, 1)
+                scores = torch.einsum("hd,nhd->hn", q.float(), cached_k.float()) / width ** .5
+                attended = torch.einsum("hn,nhd->hd", torch.softmax(scores, -1), cached_v).bfloat16()
         else:
             topk = torch.full((position + 1, position + 1), -1, device="cuda", dtype=torch.int32)
             for row, selection in enumerate(selections):
@@ -195,7 +215,8 @@ def verify(model, device=1, trace_output=None, reference_replay_only=False):
         print(comparisons[-1], flush=True)
     assert actual["rollback_exact"] and actual["reset_exact"] and actual["failure_retry_exact"]
     assert actual["resources_after_close"] == actual["kv_download_bytes"] == 0 and actual["native_calls"] > 0
-    return {"passed": not failures, "failures": failures, "checkpoint": str(model), "reference": "Staged CUDA Gemma/HC/sparse-prefill/fused-gate/Triton-W8A8 and PyTorch FP8 decode attention",
+    return {"passed": not failures, "failures": failures, "checkpoint": str(model), "reference": "Staged CUDA Gemma/HC/sparse-prefill/fused-gate/Triton-W8A8",
+            "decode_reference": "FlashInfer paged BF16 decode over FP8-rounded KV (XQA on SM120)" if decode_reference == "staged" else "PyTorch FP32 decode over FP8-rounded KV",
             "teacher_tokens": tokens, "draft_tokens": draft_tokens, "rtol": .016, "atol": .004, "comparisons": comparisons, "execution": actual,
             "target_verification_and_acceptance_loop_implemented": False}
 
@@ -204,7 +225,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__); parser.add_argument("model", type=Path); parser.add_argument("--device", type=int, default=1); parser.add_argument("--output", type=Path)
     parser.add_argument("--trace-output", type=Path)
     parser.add_argument("--reference-replay-only", action="store_true")
-    args = parser.parse_args(); result = verify(args.model, args.device, args.trace_output, args.reference_replay_only); report = json.dumps(result, indent=2)
+    parser.add_argument("--decode-reference", choices=["staged", "pytorch"], default="staged")
+    args = parser.parse_args(); result = verify(args.model, args.device, args.trace_output, args.reference_replay_only, args.decode_reference); report = json.dumps(result, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True); args.output.write_text(report + "\n")
     print(report)

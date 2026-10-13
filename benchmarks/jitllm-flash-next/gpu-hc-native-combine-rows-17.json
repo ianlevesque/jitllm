@@ -1,0 +1,188 @@
+{
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "tokens": [
+    248044,
+    9419,
+    1814,
+    0,
+    248044,
+    109266,
+    96748,
+    16,
+    17,
+    18,
+    19,
+    20
+  ],
+  "dtype": "BF16",
+  "rtol": 0.008,
+  "atol": 0.0001,
+  "passed": true,
+  "hc_rows": 17,
+  "hc_mix_precision": "BF16 projection boundaries",
+  "fused_ple_decode": true,
+  "rollback_exact": true,
+  "reset_exact": true,
+  "cache_resident_bytes": 1048576,
+  "page_misses": 264,
+  "file_bytes_read": 1081344,
+  "comparisons": [
+    {
+      "operation": "hyper_normalize",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "hyper_mix",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "hyper_combine",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_0",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_1",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_2",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_3",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_4",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_5",
+      "max_absolute_error": 1.52587890625e-05,
+      "rmse": 1.519626238177807e-07,
+      "exact_fraction": 0.999804675579071,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_6",
+      "max_absolute_error": 6.103515625e-05,
+      "rmse": 6.058197072889016e-07,
+      "exact_fraction": 0.999707043170929,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_7",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_8",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_9",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_10",
+      "max_absolute_error": 0.0,
+      "rmse": 0.0,
+      "exact_fraction": 1.0,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    },
+    {
+      "operation": "ple_token_11",
+      "max_absolute_error": 1.9073486328125e-06,
+      "rmse": 1.8848643534852272e-08,
+      "exact_fraction": 0.9999023675918579,
+      "passed": true,
+      "failed_values": 0,
+      "failures": []
+    }
+  ],
+  "gpu_hc_ple": {
+    "hyper_mixes": 2,
+    "checkpoints": 34,
+    "restores": 25,
+    "buffer_budget_refused": true,
+    "hyper_combines": 2,
+    "kernel_ns": 35064933,
+    "ple_forwards": 27,
+    "state_host_download_bytes": 0,
+    "resets": 3,
+    "resident_bytes_after_close": 0
+  },
+  "gpu_projections": true,
+  "bf16_gemm_executions": 4,
+  "bf16_gemm_cache_bytes": 81018784,
+  "projection_bytes_after_close": 0,
+  "foreign_checkpoint_refused": true,
+  "reset_checkpoint_refused": true,
+  "independent_sequences": true,
+  "checkpoint_pool_bounded": true,
+  "use_after_close_refused": true,
+  "residual_add_exact": true
+}

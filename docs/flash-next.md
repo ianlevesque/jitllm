@@ -161,6 +161,20 @@ buffer budgets, stale/foreign checkpoint rejection, residual add, closed-state
 refusal and zero tracked buffers after close. These are subsystem checks, not
 full-model long-context qualification.
 
+Native HC residual injection now reads the small BF16 injection matrix once
+into a budgeted, model-owned GPU buffer and computes its gate projection inside
+the CUDA combine operation. Its reduction matches the staged kernel: eight
+values per lane, paired products, descending warp shuffles and eight ordered
+warp sums, followed by FP32 sigmoid and a fused residual add. Unsupported shapes
+keep the projection interface. The new backend-neutral overload has a default
+implementation for existing providers.
+
+`gpu-hc-native-combine-rows-{1,17,33,1024}.json` checks both sides of the staged
+split-combine boundary and large prefill. HC normalization, mix and combine
+outputs are exact in all four cases. PLE's original tolerance, rollback/reset,
+independent sequence checks and resource budgets still pass. Synthetic teacher inputs using real MTP weights also pass the original
+activation tolerance; remaining failures start in draft attention.
+
 SM120 HC mixing uses F32 projection accumulators for <=16 rows. Larger prefill
 chunks use native BF16 GEMM with the actual batch geometry and a 32 MiB cuBLAS
 workspace, matching the staged runtime. HC combine retains F32 accumulation
@@ -449,6 +463,30 @@ close. It executes 288,072 BF16/FP32 GEMMs and takes about
 452 seconds, versus about 267 seconds in the preceding report.
 The partitioned small-row path improves accumulation fidelity; this sequential
 implementation still needs batching and fusion for throughput.
+
+The MTP verifier now defaults to the actual staged FlashInfer paged-decode API,
+which selects XQA on SM120, with BF16 queries and gathered FP8-rounded KV.
+`--decode-reference pytorch` retains the earlier FP32 reference as an optional
+diagnostic. `mtp-staged-reference-replay.json` confirms the new reference replays
+exactly. Its current full block gate still fails during the draft trajectory;
+changing the reference does not qualify speculative generation.
+
+`gpu-qsa-xqa-c-api-feasibility.json` calls the exported XQA C ABI directly on
+Torch-owned CUDA buffers. Both 6 and 2,054 selected-token cases match the public
+FlashInfer API exactly with a 16 MiB workspace; the report records the module
+hash and FlashInfer version. This establishes the native entry point, buffer
+layout and stream-context mechanism for a Java/TornadoVM binding. That binding
+and bounded native workspace ownership remain to be implemented.
+
+`gpu-mtp-native-combine-staged.json` records the current staged-kernel gate:
+all five synthetic target-HC teacher inputs using real checkpoint weights pass;
+20 draft-stage checks still fail at the unchanged rtol 0.016 / atol 0.004.
+The four checked greedy IDs, rollback/reset/failure retry and resource release
+still pass. `native-combine-regression-tests.json` records 810 Java tests (zero
+failures/errors, three skips), 112 launcher tests and 109 matching source files.
+`gpu-api-native-combine-regression.json` preserves all three normal CUDA API
+callers and reset/replay with `[17, 478, 220]` and zero tracked native resources
+and checkpoint descriptors after close. It takes about 450 seconds.
 
 Target verification/acceptance, rejection correction, stochastic sampling,
 real target-derived draft trajectories and batched verification are still

@@ -1,0 +1,452 @@
+{
+  "passed": false,
+  "failures": [
+    {
+      "step": 5,
+      "stage": "mlp_mix",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 3 / 2560 (0.1%)\nGreatest absolute difference: 0.0078125 at index (199,) (up to 0.004 allowed)\nGreatest relative difference: 0.5742971897125244 at index (2273,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 5,
+      "stage": "moe",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 138 / 2560 (5.4%)\nGreatest absolute difference: 0.01416015625 at index (1628,) (up to 0.004 allowed)\nGreatest relative difference: 2.5 at index (2394,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 5,
+      "stage": "hyper_hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 966 / 10240 (9.4%)\nGreatest absolute difference: 0.029296875 at index (9308,) (up to 0.004 allowed)\nGreatest relative difference: 74.0 at index (3890,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 5,
+      "stage": "hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 681 / 2560 (26.6%)\nGreatest absolute difference: 0.1875 at index (2028,) (up to 0.004 allowed)\nGreatest relative difference: 5.9467453956604 at index (2463,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "fusion",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 208 / 10240 (2.0%)\nGreatest absolute difference: 0.015625 at index (171,) (up to 0.004 allowed)\nGreatest relative difference: 30.0 at index (9659,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "attention_mix",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 18 / 2560 (0.7%)\nGreatest absolute difference: 0.015625 at index (1627,) (up to 0.004 allowed)\nGreatest relative difference: 0.3296089470386505 at index (1067,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "attention",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1192 / 2560 (46.6%)\nGreatest absolute difference: 0.060546875 at index (2213,) (up to 0.004 allowed)\nGreatest relative difference: 155.20472717285156 at index (1974,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "after_attention",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 2960 / 10240 (28.9%)\nGreatest absolute difference: 0.125 at index (1049,) (up to 0.004 allowed)\nGreatest relative difference: 58.75690460205078 at index (6058,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "mlp_mix",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1260 / 2560 (49.2%)\nGreatest absolute difference: 0.13671875 at index (2442,) (up to 0.004 allowed)\nGreatest relative difference: 50.20000076293945 at index (1961,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "moe",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1225 / 2560 (47.9%)\nGreatest absolute difference: 0.0546875 at index (2190,) (up to 0.004 allowed)\nGreatest relative difference: inf at index (783,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "hyper_hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 5411 / 10240 (52.8%)\nGreatest absolute difference: 0.1328125 at index (4750,) (up to 0.004 allowed)\nGreatest relative difference: 152.67999267578125 at index (5980,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 6,
+      "stage": "hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1748 / 2560 (68.3%)\nGreatest absolute difference: 1.0625 at index (2190,) (up to 0.004 allowed)\nGreatest relative difference: 66.39130401611328 at index (1964,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "fusion",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 3072 / 10240 (30.0%)\nGreatest absolute difference: 0.078125 at index (1049,) (up to 0.004 allowed)\nGreatest relative difference: inf at index (3763,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "attention_mix",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 577 / 2560 (22.5%)\nGreatest absolute difference: 0.046875 at index (1551,) (up to 0.004 allowed)\nGreatest relative difference: 25.807947158813477 at index (2116,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "attention",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1246 / 2560 (48.7%)\nGreatest absolute difference: 0.08203125 at index (460,) (up to 0.004 allowed)\nGreatest relative difference: 314.6164245605469 at index (2228,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "after_attention",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 4677 / 10240 (45.7%)\nGreatest absolute difference: 0.203125 at index (2086,) (up to 0.004 allowed)\nGreatest relative difference: 201.70399475097656 at index (7827,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "mlp_mix",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1421 / 2560 (55.5%)\nGreatest absolute difference: 0.13720703125 at index (1202,) (up to 0.004 allowed)\nGreatest relative difference: 35.858638763427734 at index (1628,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "moe",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1283 / 2560 (50.1%)\nGreatest absolute difference: 0.0390625 at index (1132,) (up to 0.004 allowed)\nGreatest relative difference: inf at index (642,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "hyper_hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 6099 / 10240 (59.6%)\nGreatest absolute difference: 0.21875 at index (495,) (up to 0.004 allowed)\nGreatest relative difference: 810.9290161132812 at index (2383,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1822 / 2560 (71.2%)\nGreatest absolute difference: 0.6875 at index (1651,) (up to 0.004 allowed)\nGreatest relative difference: 33.440677642822266 at index (195,) (up to 0.016 allowed)"
+    }
+  ],
+  "checkpoint": "/home/ian/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-NVFP4/snapshots/fc694b54fb0174e0913e6adf86691ef85a4ead47",
+  "reference": "Staged CUDA Gemma/HC/sparse-prefill/fused-gate/Triton-W8A8",
+  "decode_reference": "FlashInfer paged BF16 decode over FP8-rounded KV (XQA on SM120)",
+  "teacher_tokens": [
+    17,
+    478,
+    220,
+    20,
+    248044
+  ],
+  "draft_tokens": [
+    9419,
+    1814,
+    0
+  ],
+  "rtol": 0.016,
+  "atol": 0.004,
+  "comparisons": [
+    {
+      "step": 0,
+      "draft": false,
+      "greedy": 15,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 1,
+      "draft": false,
+      "greedy": 44,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 6.103515625e-05,
+          "exact_fraction": 0.9996093511581421
+        }
+      }
+    },
+    {
+      "step": 2,
+      "draft": false,
+      "greedy": 19,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.001953125,
+          "exact_fraction": 0.999218761920929
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.00390625,
+          "exact_fraction": 0.9994140863418579
+        },
+        "hidden": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.9476562738418579
+        }
+      }
+    },
+    {
+      "step": 3,
+      "draft": false,
+      "greedy": 220,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 4,
+      "draft": false,
+      "greedy": 220,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      }
+    },
+    {
+      "step": 5,
+      "draft": true,
+      "greedy": 198,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0078125,
+          "exact_fraction": 0.759765625
+        },
+        "after_attention": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.901171863079071
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.787890613079071
+        },
+        "moe": {
+          "max_absolute_error": 0.01416015625,
+          "exact_fraction": 0.13671875
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.25126951932907104
+        },
+        "hidden": {
+          "max_absolute_error": 0.25,
+          "exact_fraction": 0.2109375
+        }
+      }
+    },
+    {
+      "step": 6,
+      "draft": true,
+      "greedy": 471,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.32158201932907104
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.29374998807907104
+        },
+        "attention": {
+          "max_absolute_error": 0.060546875,
+          "exact_fraction": 0.06015624850988388
+        },
+        "after_attention": {
+          "max_absolute_error": 0.125,
+          "exact_fraction": 0.11757812649011612
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.13671875,
+          "exact_fraction": 0.08164062350988388
+        },
+        "moe": {
+          "max_absolute_error": 0.0546875,
+          "exact_fraction": 0.052734375
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.1328125,
+          "exact_fraction": 0.07011719048023224
+        },
+        "hidden": {
+          "max_absolute_error": 1.0625,
+          "exact_fraction": 0.04921875149011612
+        }
+      }
+    },
+    {
+      "step": 7,
+      "draft": true,
+      "greedy": 198,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.078125,
+          "exact_fraction": 0.10332031548023224
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.046875,
+          "exact_fraction": 0.09609375149011612
+        },
+        "attention": {
+          "max_absolute_error": 0.08203125,
+          "exact_fraction": 0.05078125
+        },
+        "after_attention": {
+          "max_absolute_error": 0.203125,
+          "exact_fraction": 0.07353515923023224
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.13720703125,
+          "exact_fraction": 0.076171875
+        },
+        "moe": {
+          "max_absolute_error": 0.0390625,
+          "exact_fraction": 0.04765624925494194
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.21875,
+          "exact_fraction": 0.05908203125
+        },
+        "hidden": {
+          "max_absolute_error": 0.6875,
+          "exact_fraction": 0.048828125
+        }
+      }
+    }
+  ],
+  "execution": {
+    "rollback_exact": true,
+    "reset_exact": true,
+    "failure_retry_exact": true,
+    "draft_steps": 3,
+    "native_calls": 4500,
+    "moe_forwards": 18,
+    "qsa_forwards": 18,
+    "qsa_restores": 4,
+    "kv_download_bytes": 0,
+    "fusion_forwards": 18,
+    "fusion_peak_bytes": 60014800,
+    "moe_peak_bytes": 132353572,
+    "resources_after_close": 0
+  },
+  "target_verification_and_acceptance_loop_implemented": false
+}

@@ -33,6 +33,15 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
                 .withParameters(new Object[]{groups,width,epsilon,input,weights,output})
                 .withAccess(new Access[]{Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.WRITE_ONLY});
     }
+    public static LibraryTaskDescriptor combine(int branches,int width,FloatArray block,FloatArray residual,FloatArray normalized,FloatArray weights,FloatArray output) {
+        int row=Math.multiplyExact(branches,width);
+        if(branches<=0 || width<=0 || width%8!=0 || row%2048!=0 || block.getSize()!=width || residual.getSize()!=row
+                || normalized.getSize()!=row || weights.getSize()!=Math.multiplyExact(branches,row) || output.getSize()!=row)
+            throw new IllegalArgumentException("Invalid native HC combine buffers");
+        return new LibraryTaskDescriptor().withLibrary(NAME).withFunction("combine")
+                .withParameters(new Object[]{branches,width,block,residual,normalized,weights,output})
+                .withAccess(new Access[]{Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.READ_ONLY,Access.WRITE_ONLY});
+    }
     // Reduction geometry follows FlashInfer norm/kernels/rmsnorm.py (Apache-2.0).
     private static final String SOURCE="""
         extern "C" __global__ void gemma_norm(const float* input,const float* weights,float* output,int width,float epsilon) {
@@ -87,6 +96,34 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
             output[at]=__uint_as_float(bits);
           }
         }
+        // The gate reduction follows SGLang hc_combine.cuh (Apache-2.0): eight
+        // values per lane, paired products, descending XOR, then eight warp sums.
+        extern "C" __global__ void hc_combine(const float* block,const float* residual,const float* normalized,const float* weights,float* output,int branches,int width) {
+          int lane=threadIdx.x,branch=blockIdx.x,row=branches*width;
+          __shared__ float sums[8];__shared__ float gain;float sum=0.0f;
+          for(int start=lane*8;start<row;start+=2048) {
+            #pragma unroll
+            for(int pair=0;pair<4;pair++) {
+              int at=start+pair*2;
+              sum+=normalized[at]*weights[branch*row+at]+normalized[at+1]*weights[branch*row+at+1];
+            }
+          }
+          #pragma unroll
+          for(int mask=16;mask>0;mask/=2) sum+=__shfl_xor_sync(0xffffffff,sum,mask);
+          if(lane%32==0) sums[lane/32]=sum;__syncthreads();
+          if(lane==0) {
+            float total=0.0f;
+            #pragma unroll
+            for(int warp=0;warp<8;warp++) total+=sums[warp];
+            gain=2.0f/(1.0f+expf(-total/float(branches)));
+          }
+          __syncthreads();
+          for(int column=lane;column<width;column+=256) {
+            int at=branch*width+column;float value=fmaf(gain,block[column],residual[at]);
+            unsigned int bits=__float_as_uint(value);bits=(bits+0x7fff+((bits>>16)&1))&0xffff0000;
+            output[at]=__uint_as_float(bits);
+          }
+        }
         """;
     private static final class Native {
         static final SymbolLookup CUDA=required("libcuda.so.1","libcuda.so"),RTC=required("libnvrtc.so.13","libnvrtc.so");
@@ -102,7 +139,7 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
     private static void check(int status,String action) {if(status!=0) throw new IllegalStateException(action+" failed with CUDA/NVRTC status "+status);}
     private static RuntimeException failure(Throwable error) {if(error instanceof RuntimeException r) return r;if(error instanceof Error e) throw e;return new IllegalStateException(error);}
     private static final class Context implements LibraryContext {
-        long module,function,groupFunction;
+        long module,function,groupFunction,combineFunction;
         void prepare() {
             if(module!=0) return;
             long program=0;
@@ -120,7 +157,8 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
                 check((int)Native.SIZE.invokeExact(program,slot),"NVRTC PTX size");var code=arena.allocate(slot.get(C_LONG,0),1);check((int)Native.PTX.invokeExact(program,code),"NVRTC PTX");
                 check((int)Native.LOAD.invokeExact(slot,code),"CUDA norm module");module=slot.get(C_LONG,0);
                 check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("gemma_norm")),"CUDA norm function");function=slot.get(C_LONG,0);
-                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("grouped_gemma_norm")),"CUDA grouped norm function");groupFunction=slot.get(C_LONG,0);CONTEXTS.incrementAndGet();
+                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("grouped_gemma_norm")),"CUDA grouped norm function");groupFunction=slot.get(C_LONG,0);
+                check((int)Native.FUNCTION.invokeExact(slot,module,arena.allocateFrom("hc_combine")),"CUDA HC combine function");combineFunction=slot.get(C_LONG,0);CONTEXTS.incrementAndGet();
             } catch(Throwable error) {
                 if(module!=0) try {check((int)Native.UNLOAD.invokeExact(module),"CUDA norm cleanup");module=0;} catch(Throwable closing) {error.addSuppressed(closing);}
                 throw failure(error);
@@ -133,8 +171,9 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
     @Override public String libraryName() {return NAME;}
     @Override public boolean canHandle(TornadoXPUDevice device) {return device instanceof TornadoNativeStreamSupport;}
     @Override public LibraryContext createContext(TornadoXPUDevice device,long id) {return new Context();}
-    @Override public void prepare(LibraryTaskDescriptor descriptor,LibraryContext context) {if(!descriptor.getFunctionName().equals("normalize") && !descriptor.getFunctionName().equals("grouped")) throw new IllegalArgumentException("Unknown norm function");((Context)context).prepare();}
+    @Override public void prepare(LibraryTaskDescriptor descriptor,LibraryContext context) {if(!descriptor.getFunctionName().equals("normalize") && !descriptor.getFunctionName().equals("grouped") && !descriptor.getFunctionName().equals("combine")) throw new IllegalArgumentException("Unknown norm function");((Context)context).prepare();}
     @Override public void dispatch(String function,LibraryInvocation invocation) {
+        if(function.equals("combine")) {dispatchCombine(invocation);return;}
         var context=(Context)invocation.getContext();int rows=(Integer)invocation.getArg(0),width=(Integer)invocation.getArg(1);
         boolean grouped=function.equals("grouped");int threads=grouped ? width/16 : width<=3072 ? 32 : width<=6144 ? 64 : width<=16384 ? 128 : 256;
         long kernel=grouped ? context.groupFunction : context.function;long stream=((TornadoNativeStreamSupport)invocation.getDevice()).getNativeStream(invocation.getExecutionPlanId());
@@ -144,6 +183,17 @@ public final class FlashNextRmsNormLibrary implements TornadoLibraryProvider {
             var d=arena.allocate(4,4);d.set(C_INT,0,width);parameters.set(C_POINTER,24,d);
             var e=arena.allocate(4,4);e.set(C_FLOAT,0,(Float)invocation.getArg(2));parameters.set(C_POINTER,32,e);
             check((int)Native.LAUNCH.invokeExact(kernel,rows,1,1,threads,1,1,0,stream,parameters,MemorySegment.NULL),"CUDA Gemma norm launch");CALLS.incrementAndGet();
+        } catch(Throwable error) {throw failure(error);}
+    }
+    private static void dispatchCombine(LibraryInvocation invocation) {
+        var context=(Context)invocation.getContext();int branches=(Integer)invocation.getArg(0),width=(Integer)invocation.getArg(1);
+        long stream=((TornadoNativeStreamSupport)invocation.getDevice()).getNativeStream(invocation.getExecutionPlanId());
+        try(var arena=Arena.ofConfined()) {
+            var parameters=arena.allocate(56,8);
+            for(int i=0;i<5;i++) {var argument=arena.allocate(8,8);argument.set(C_LONG,0,invocation.getDevicePointer(i+2));parameters.set(C_POINTER,i*8L,argument);}
+            var b=arena.allocate(4,4);b.set(C_INT,0,branches);parameters.set(C_POINTER,40,b);
+            var w=arena.allocate(4,4);w.set(C_INT,0,width);parameters.set(C_POINTER,48,w);
+            check((int)Native.LAUNCH.invokeExact(context.combineFunction,branches,1,1,256,1,1,0,stream,parameters,MemorySegment.NULL),"CUDA HC combine launch");CALLS.incrementAndGet();
         } catch(Throwable error) {throw failure(error);}
     }
     @Override public void destroyContext(LibraryContext context) {
