@@ -545,9 +545,28 @@ three skips), 112 launcher tests and 113 matching source files. It distinguishes
 passing native block checks from the still-missing real target-derived MTP
 qualification, acceptance loop and full-context concurrent capacity checks.
 
-Target verification/acceptance, rejection correction, stochastic sampling,
-real target-derived draft trajectories and batched verification are still
-required. The block checks do not establish working speculative API generation.
+## Experimental speculative coordinator
+
+`Qwen4SpeculativeSequence` now coordinates three top-1 MTP proposals with
+sequential target verification. Each emitted token uses one draw from the
+original target sampler; matching proposals are accepted, and the first
+mismatch becomes the correction token. Target state restores to the committed
+prefix, while teacher refresh uses verified target HC states. Deferred teacher
+updates happen before the next sampler draw, allowing teacher I/O failures to
+retry without consuming another draw.
+
+Five unit tests compare accepted and rejected drafts with a target-only oracle,
+including 32 stochastic seeds, budget/context boundaries, cancellation,
+multiturn pending tokens, stop tokens, reset, checkpoint release and injected
+failures. The native engine/MTP adapters are included, but the normal CUDA API
+does not yet select this coordinator. Real target-derived MTP qualification,
+native end-to-end generation and batched verification remain required.
+Optional full-distribution p/q rejection sampling is also unimplemented; this
+coordinator implements the staged top-1 proposal policy.
+
+`speculative-coordinator-tests.json` records the updated fork test suite.
+The block checks and coordinator unit tests do not establish working
+speculative CUDA API generation.
 
 ## Normal CUDA model/API integration
 
@@ -743,8 +762,9 @@ and an optional `cache_bytes` budget.
 2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
    including grouped native NVFP4 projections and complete FP8 draft-layer integration. The normal CUDA
    model provider now dispatches through its owned plans; production serving remains to be qualified.
-3. Qualify the MTP/NextN block and implement draft-three target verification,
-   rejection correction and accepted-prefix rollback across target and draft states.
+3. Qualify real target-derived MTP/NextN trajectories and connect the tested
+   draft-three coordinator to the normal CUDA API. Verify native target/draft
+   rollback, correction and stochastic sampling end to end, then batch verification.
 4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
    prefill/chunking, memory planning and three-request scheduling. Configuration
    and admission checks do not prove full-context/concurrent inference.

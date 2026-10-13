@@ -1,0 +1,17 @@
+{
+  "command": "python3 scripts/flash-next/jitllm_runtime.py test",
+  "java_suite": {
+    "tests": 815,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 3
+  },
+  "coordinator_tests": 5,
+  "matching_overlay_fork_source_files": 115,
+  "proposal_count": 3,
+  "verification": "sequential target sampling against top-1 proposals",
+  "stochastic_target_only_oracle_seeds": 32,
+  "normal_cuda_api_coordinator_integration": false,
+  "real_target_derived_mtp_qualified": false,
+  "native_speculative_generation_qualified": false
+}
