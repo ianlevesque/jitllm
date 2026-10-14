@@ -19,6 +19,9 @@ package org.beehive.jitllm.api;
  *   <li>{@link #reasoningEffortControl()} — the family's template takes a {@link ReasoningEffort}.
  *       When {@code false}, asking for an explicit one fails with an {@link
  *       IllegalArgumentException}; {@link ReasoningEffort#DEFAULT} is always accepted.
+ *   <li>{@link #imageInput()} — a {@code USER} message may carry {@link ChatContent.Image}
+ *       pieces, which the family's vision tower encodes into the prompt. When {@code false}, a
+ *       request carrying an image fails with an {@link UnsupportedOperationException}.
  * </ul>
  *
  * <p>Immutable and thread-safe.
@@ -26,20 +29,30 @@ package org.beehive.jitllm.api;
  * @param toolCalling whether requests carrying tools are supported
  * @param thinkingControl whether an explicit {@link ThinkingMode} is supported
  * @param reasoningEffortControl whether an explicit {@link ReasoningEffort} is supported
+ * @param imageInput whether requests carrying image content are supported
  */
 @Experimental
 public record ModelCapabilities(
-        boolean toolCalling, boolean thinkingControl, boolean reasoningEffortControl) {
+        boolean toolCalling,
+        boolean thinkingControl,
+        boolean reasoningEffortControl,
+        boolean imageInput) {
 
     /**
      * Neither tool calling nor any reasoning control: what a plain text-completion format offers.
      */
-    public static final ModelCapabilities NONE = new ModelCapabilities(false, false, false);
+    public static final ModelCapabilities NONE = new ModelCapabilities(false, false, false, false);
 
     /**
      * Capabilities of a family without reasoning-effort control, the case of every family but one.
      */
     public ModelCapabilities(boolean toolCalling, boolean thinkingControl) {
-        this(toolCalling, thinkingControl, false);
+        this(toolCalling, thinkingControl, false, false);
+    }
+
+    /** Capabilities of a text-only family: no image input. */
+    public ModelCapabilities(
+            boolean toolCalling, boolean thinkingControl, boolean reasoningEffortControl) {
+        this(toolCalling, thinkingControl, reasoningEffortControl, false);
     }
 }

@@ -83,6 +83,49 @@ public final class Qwen4Moe implements AutoCloseable {
         if(device!=null) {var result=device.forward(input);return new Result(result.output(),new Routing(result.experts(),result.weights()));}
         float[] logits=Qwen4CpuLayers.project(router,input);
         Routing routing=route(logits,config.expertsPerToken(),config.normalizeTopK());
+        float[] accumulated=expertAccumulation(input,routing);
+        float[] shared=Qwen4CpuLayers.project(sharedDown,swiglu(Qwen4CpuLayers.project(sharedGate,input),Qwen4CpuLayers.project(sharedUp,input)));
+        float sharedWeight=bf((float)(1/(1+Math.exp(-Qwen4CpuLayers.project(sharedRouter,input)[0]))));
+        return new Result(addShared(accumulated,shared,sharedWeight),routing);
+    }
+    /**
+     * Distinct-row batched {@link #forward} for prefill. Routing is per row; on the host
+     * path the router and shared-expert projections run as distinct-row GEMMs while the
+     * routed experts keep the single-row packed NVFP4/FP8 calls (no batched packed entry
+     * point exists outside the device executors). A device MoE layer has only a single-row
+     * forward, so rows delegate to it unchanged. Per-row arithmetic is identical either
+     * way; only the dense GEMM geometry changes.
+     */
+    public Result[] forwardBatch(float[][] inputs) throws IOException {
+        if(closed) throw new IOException("MoE layer is closed");
+        if(inputs.length==0) throw new IllegalArgumentException("Wrong MoE input width");
+        Result[] results=new Result[inputs.length];
+        if(device!=null) {
+            for(int row=0; row<inputs.length; row++) results[row]=forward(inputs[row]);
+            return results;
+        }
+        int rows=inputs.length;
+        float[] flat=Qwen4CpuLayers.flatten(inputs,config.dim());
+        float[][] logits=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(router,flat,rows),rows,router.rows());
+        float[][] sharedGates=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(sharedGate,flat,rows),rows,sharedGate.rows());
+        float[][] sharedUps=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(sharedUp,flat,rows),rows,sharedUp.rows());
+        float[][] sharedRoutes=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(sharedRouter,flat,rows),rows,sharedRouter.rows());
+        float[][] activated=new float[rows][];
+        Routing[] routings=new Routing[rows];
+        float[][] accumulated=new float[rows][];
+        for(int row=0; row<rows; row++) {
+            routings[row]=route(logits[row],config.expertsPerToken(),config.normalizeTopK());
+            accumulated[row]=expertAccumulation(inputs[row],routings[row]);
+            activated[row]=swiglu(sharedGates[row],sharedUps[row]);
+        }
+        float[][] shared=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(sharedDown,Qwen4CpuLayers.flatten(activated,sharedGate.rows()),rows),rows,sharedDown.rows());
+        for(int row=0; row<rows; row++) {
+            float sharedWeight=bf((float)(1/(1+Math.exp(-sharedRoutes[row][0]))));
+            results[row]=new Result(addShared(accumulated[row],shared[row],sharedWeight),routings[row]);
+        }
+        return results;
+    }
+    private float[] expertAccumulation(float[] input,Routing routing) throws IOException {
         var quantizedInput=fp8Experts || router.quantizesNvfp4OnDevice() ? null : Nvfp4Activation.quantize(input,inputScale);
         float[] accumulated=new float[config.dim()];
         for(int selected=0;selected<routing.experts().length;selected++) {
@@ -96,10 +139,11 @@ public final class Qwen4Moe implements AutoCloseable {
             float[] output=fp8Experts ? projectFp8(downs[expert],activated,routing.weights()[selected]) : projectPacked(downs[expert],activated,intermediateScale,quantized);
             for(int i=0;i<accumulated.length;i++) accumulated[i]=fp8Experts ? accumulated[i]+output[i] : Math.fma(routing.weights()[selected],output[i],accumulated[i]);
         }
-        float[] shared=Qwen4CpuLayers.project(sharedDown,swiglu(Qwen4CpuLayers.project(sharedGate,input),Qwen4CpuLayers.project(sharedUp,input)));
-        float sharedWeight=bf((float)(1/(1+Math.exp(-Qwen4CpuLayers.project(sharedRouter,input)[0]))));
+        return accumulated;
+    }
+    private static float[] addShared(float[] accumulated,float[] shared,float sharedWeight) {
         for(int i=0;i<accumulated.length;i++) accumulated[i]=bf(bf(accumulated[i])+bf(shared[i]*sharedWeight));
-        return new Result(accumulated,routing);
+        return accumulated;
     }
     private static float[] projectFp8(ModelOptMatrix matrix,float[] input,float route) throws IOException {
         float[] output=new float[matrix.rows()];matrix.multiplyBlockFp8Values(input,route,output);return output;

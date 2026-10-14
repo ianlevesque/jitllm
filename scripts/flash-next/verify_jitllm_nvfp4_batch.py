@@ -11,7 +11,7 @@ from safetensors import safe_open
 from flashinfer.fp4_quantization import fp4_quantize
 from flashinfer.gemm import mm_fp4
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parent
 
 
 def verify(model,matrices,batches,device=1):
@@ -36,7 +36,7 @@ def verify(model,matrices,batches,device=1):
             with tempfile.TemporaryDirectory(prefix="jitllm-nvfp4-batch-") as temp:
                 request=Path(temp)/"request.json"
                 request.write_text(json.dumps({"matrix":prefix,"batch_rows":batch,"device":device,"input_scale":scale,"input":values.float().flatten().tolist()}))
-                result=subprocess.run([sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"nvfp4-batch-probe",str(model),str(request)],capture_output=True,text=True)
+                result=subprocess.run([sys.executable,str(ROOT/"jitllm_runtime.py"),"nvfp4-batch-probe",str(model),str(request)],capture_output=True,text=True)
                 if result.returncode:raise RuntimeError(result.stderr+"\n"+result.stdout)
                 lines=[line for line in result.stdout.splitlines() if line.startswith('{"')]
                 if len(lines)!=1:raise RuntimeError("Expected one native NVFP4 report: "+result.stdout)

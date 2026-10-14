@@ -1,0 +1,764 @@
+{
+  "passed": false,
+  "reference_replay": true,
+  "failures": [
+    {
+      "step": 2,
+      "stage": "hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 1 / 2560 (0.0%)\nGreatest absolute difference: 0.0146484375 at index (1372,) (up to 0.004 allowed)\nGreatest relative difference: 0.1796407252550125 at index (1372,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "hyper_hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 24 / 10240 (0.2%)\nGreatest absolute difference: 0.01171875 at index (3410,) (up to 0.004 allowed)\nGreatest relative difference: 4.186666488647461 at index (3507,) (up to 0.016 allowed)"
+    },
+    {
+      "step": 7,
+      "stage": "hidden",
+      "error": "Tensor-likes are not close!\n\nMismatched elements: 206 / 2560 (8.0%)\nGreatest absolute difference: 0.078125 at index (2087,) (up to 0.004 allowed)\nGreatest relative difference: 10.043137550354004 at index (1707,) (up to 0.016 allowed)"
+    }
+  ],
+  "cases": [
+    {
+      "step": 0,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 8678,
+      "replayed_greedy": 8678
+    },
+    {
+      "step": 1,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 550,
+      "replayed_greedy": 550
+    },
+    {
+      "step": 2,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0078125,
+          "exact_fraction": 0.9964843988418579
+        },
+        "moe": {
+          "max_absolute_error": 0.0078125,
+          "exact_fraction": 0.9644531011581421
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.975292980670929
+        },
+        "hidden": {
+          "max_absolute_error": 0.03125,
+          "exact_fraction": 0.9605468511581421
+        }
+      },
+      "greedy": 15,
+      "replayed_greedy": 15
+    },
+    {
+      "step": 3,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 16,
+      "replayed_greedy": 16
+    },
+    {
+      "step": 4,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 248046,
+      "replayed_greedy": 248046
+    },
+    {
+      "step": 5,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 248046,
+      "replayed_greedy": 248046
+    },
+    {
+      "step": 6,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 198,
+      "replayed_greedy": 198
+    },
+    {
+      "step": 7,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.994921863079071
+        },
+        "moe": {
+          "max_absolute_error": 0.005859375,
+          "exact_fraction": 0.443359375
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.015625,
+          "exact_fraction": 0.5596679449081421
+        },
+        "hidden": {
+          "max_absolute_error": 0.125,
+          "exact_fraction": 0.5492187738418579
+        }
+      },
+      "greedy": 248045,
+      "replayed_greedy": 248045
+    },
+    {
+      "step": 8,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 248045,
+      "replayed_greedy": 248045
+    },
+    {
+      "step": 9,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 198,
+      "replayed_greedy": 198
+    },
+    {
+      "step": 10,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 248068,
+      "replayed_greedy": 248068
+    },
+    {
+      "step": 11,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 198,
+      "replayed_greedy": 198
+    },
+    {
+      "step": 12,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 248069,
+      "replayed_greedy": 248069
+    },
+    {
+      "step": 13,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 271,
+      "replayed_greedy": 271
+    },
+    {
+      "step": 14,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 17,
+      "replayed_greedy": 17
+    },
+    {
+      "step": 15,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 478,
+      "replayed_greedy": 478
+    },
+    {
+      "step": 16,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 220,
+      "replayed_greedy": 220
+    },
+    {
+      "step": 17,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 16,
+      "replayed_greedy": 16
+    },
+    {
+      "step": 18,
+      "stages": {
+        "fusion": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "after_attention": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "mlp_mix": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "moe": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hyper_hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        },
+        "hidden": {
+          "max_absolute_error": 0.0,
+          "exact_fraction": 1.0
+        }
+      },
+      "greedy": 478,
+      "replayed_greedy": 478
+    }
+  ]
+}

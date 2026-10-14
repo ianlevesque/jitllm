@@ -5,7 +5,7 @@ import org.beehive.jitllm.tensor.standard.ArrayFloatTensor;
 import org.beehive.jitllm.tensor.standard.FloatTensor;
 
 /** Host adapter; the sequence owns lazy KV allocation rather than the legacy dense cache. */
-public final class Qwen4State extends State implements AutoCloseable {
+public final class Qwen4State extends State implements AutoCloseable, MultimodalState {
     private final Qwen4SequenceState sequence;
 
     public Qwen4State(Configuration config, int batchsize, Qwen4SequenceState sequence) {
@@ -14,6 +14,10 @@ public final class Qwen4State extends State implements AutoCloseable {
     }
 
     public Qwen4SequenceState sequence() { return sequence; }
+
+    @Override public void stageMultimodalPrompt(MultimodalPromptPlan plan) {
+        sequence.stageMultimodalPrompt(plan);
+    }
 
     @Override protected StateFields createStateFields(Configuration config) {
         StateFields fields = new StateFields();

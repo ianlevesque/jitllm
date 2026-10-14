@@ -74,6 +74,20 @@ final class DelegatingSession implements GenerationSession {
     private List<Integer> carriedHistory = List.of();
 
     /**
+     * The image plan {@link #encodeConversation(GenerationRequest)} built for the turn now
+     * being generated, staged into the execution state just before the model runs and cleared
+     * with it. Null on every text-only turn.
+     */
+    private org.beehive.jitllm.inference.state.MultimodalPromptPlan stagedImagePlan;
+
+    /**
+     * Whether the retained context was ingested with image rows spliced in. Token-prefix
+     * reuse cannot tell two images of the same shape apart, so while this is set no prefix
+     * is ever reused: an image turn always re-encodes from a reset sequence.
+     */
+    private boolean contextHasImages;
+
+    /**
      * How this session executes, resolved once at construction.
      *
      * <p>A value, not a lookup: the choices it carries were {@code static final} fields read from
@@ -182,9 +196,19 @@ final class DelegatingSession implements GenerationSession {
                     new GenerationTimings(Duration.ZERO, Duration.ZERO, 0, 0));
         }
 
+        // This request's reasoning controls over the session's: only the encoding differs (the
+        // thinking control after the assistant header, and reasoning instructions in the system
+        // turn), never the model or its state. With no override this is the session encoder
+        // itself, so an unset request encodes bit-identically to before the override existed.
+        // Prefix reuse stays sound either way: it compares the full encoded token list, which
+        // the controls are part of, so a mode change diverges and re-encodes like any other edit.
+        ConversationEncoder requestEncoder = encoderFor(request);
+
         boolean promptForm = request.messages() == null;
         List<Integer> promptTokens =
-                promptForm ? encodePrompt(request) : encodeConversation(request);
+                promptForm
+                        ? encodePrompt(request, requestEncoder)
+                        : encodeConversation(request, requestEncoder);
         if (position + promptTokens.size() >= contextLength) {
             return new GenerationResult(
                     "",
@@ -197,20 +221,81 @@ final class DelegatingSession implements GenerationSession {
         // Consumed by this turn's prompt, or superseded by a conversation-form request.
         carriedHistory = List.of();
 
+        boolean captureLogprobs = request.logprobs();
+        long seed = request.seed() != null ? request.seed() : System.nanoTime();
         Sampler sampler =
-                Sampler.selectSampler(
-                        model.configuration().vocabularySize(),
-                        request.temperature(),
-                        request.topP(),
-                        request.seed() != null ? request.seed() : System.nanoTime());
+                captureLogprobs
+                        ? Sampler.selectSampler(
+                                model.configuration().vocabularySize(),
+                                request.temperature(),
+                                request.topP(),
+                                request.topK(),
+                                request.minP(),
+                                request.frequencyPenalty(),
+                                request.presencePenalty(),
+                                request.repetitionPenalty(),
+                                seed,
+                                request.topLogprobs())
+                        : Sampler.selectSampler(
+                                model.configuration().vocabularySize(),
+                                request.temperature(),
+                                request.topP(),
+                                request.topK(),
+                                request.minP(),
+                                request.frequencyPenalty(),
+                                request.presencePenalty(),
+                                request.repetitionPenalty(),
+                                seed);
+        // Penalties count the sequence so far: what the cache already holds plus this turn's
+        // prompt. The sampler records its own output from here; history-free samplers ignore this.
+        sampler.observeTokens(encodedContext.tokens());
+        sampler.observeTokens(promptTokens);
 
         // Tool-aware stop handling is a consequence of attaching tools, never an independent
         // choice, and the facade never exposes a stop-token set [§6].
         Set<Integer> stopTokens = encoder.stopTokens(!request.tools().isEmpty());
 
+        // The sampler records one entry per sampled token, in sample order, and every generation
+        // loop behind generateTokens (target and speculative alike) emits exactly the tokens it
+        // samples, in that order: the speculative sequence samples each emitted token once from
+        // its target distribution — draft proposals are greedy() on the draft head and never
+        // reach the sampler — so accepted, correction and bonus tokens each pair with the target
+        // entry sampled for them. The pairing is still checked token by token, and the first
+        // mismatch (a device-side sampler the capture cannot see, say) drops log-probabilities
+        // for the rest of the generation rather than mislabelling a token with another's entry.
+        int[] nextCaptured = {0};
+        boolean[] captureFailed = {false};
+        java.util.function.IntFunction<org.beehive.jitllm.inference.sampler.SampledTokenLogprob>
+                logprobForToken =
+                        !captureLogprobs
+                                ? null
+                                : token -> {
+                                    if (captureFailed[0]) {
+                                        return null;
+                                    }
+                                    var captured = sampler.capturedLogprobs();
+                                    if (nextCaptured[0] >= captured.size()
+                                            || captured.get(nextCaptured[0]).tokenId() != token) {
+                                        captureFailed[0] = true;
+                                        return null;
+                                    }
+                                    return captured.get(nextCaptured[0]++);
+                                };
+        // With capture on, the emitted events are also collected: the result's entries are the
+        // events' entries, so the two surfaces cannot disagree about a token or its text.
+        List<GenerationEvent> emittedEvents = captureLogprobs ? new ArrayList<>() : null;
+        java.util.function.Consumer<GenerationEvent> onEvent =
+                emittedEvents == null
+                        ? request.onEvent()
+                        : event -> {
+                            emittedEvents.add(event);
+                            if (request.onEvent() != null) {
+                                request.onEvent().accept(event);
+                            }
+                        };
         TokenEventStream events =
                 new TokenEventStream(
-                        model.tokenizer(), stopTokens, request.onEvent(), request.onToken());
+                        model.tokenizer(), stopTokens, onEvent, request.onToken(), logprobForToken);
         // With a cancellation token, the loops can see it through the consumer they already take,
         // and stop after the token being delivered (TokenGenerationLoop.cancellationRequested).
         var cancellable =
@@ -239,6 +324,20 @@ final class DelegatingSession implements GenerationSession {
         // The session's logical values become current in whatever state it executes with. For a
         // borrowed workspace that is what keeps two sessions' conversations apart.
         runtime.beginTurn();
+
+        // An image turn's tower rows and MRoPE positions ride into the engine on its state:
+        // the generation loops stay token-at-a-time, and the sequence splices by position.
+        if (stagedImagePlan != null) {
+            if (runtime.executionState()
+                    instanceof
+                    org.beehive.jitllm.inference.state.MultimodalState multimodalState) {
+                multimodalState.stageMultimodalPrompt(stagedImagePlan);
+            } else {
+                throw new UnsupportedOperationException(
+                        "image content is not supported by this model's execution state");
+            }
+            stagedImagePlan = null;
+        }
 
         // The loops take a position bound, not a token count: the budget is the positions the
         // prompt occupies plus the tokens asked for, capped by the session's context — exceeding
@@ -330,7 +429,79 @@ final class DelegatingSession implements GenerationSession {
                 responseTokens.size(),
                 reason,
                 timings(promptTokens.size(), responseTokens.size()),
-                toolCalls);
+                toolCalls,
+                tokenLogprobsOf(emittedEvents, responseTokens));
+    }
+
+    /**
+     * The result's log-probability entries: the emitted events' entries, kept only when they
+     * cover every generated token in order. Anything else — capture off, a token whose entry
+     * the capture could not supply, a count that disagrees — reports none, because a partial or
+     * shifted list would attribute one token's probability to another.
+     */
+    static List<TokenLogprob> tokenLogprobsOf(
+            List<GenerationEvent> emittedEvents, List<Integer> responseTokens) {
+        if (emittedEvents == null || emittedEvents.size() != responseTokens.size()) {
+            return List.of();
+        }
+        List<TokenLogprob> entries = new ArrayList<>(emittedEvents.size());
+        for (int i = 0; i < emittedEvents.size(); i++) {
+            GenerationEvent event = emittedEvents.get(i);
+            if (event.tokenId() != responseTokens.get(i) || event.tokenLogprob() == null) {
+                return List.of();
+            }
+            entries.add(event.tokenLogprob());
+        }
+        return List.copyOf(entries);
+    }
+
+    /**
+     * The encoder for one request: the session's, overridden by whatever the request set.
+     *
+     * <p>An override the model's format cannot represent is rejected here, with the same rule
+     * {@link DelegatingModel} applies at session open — an explicit thinking mode needs a
+     * reasoning phase to control, and an explicit effort needs the template control and a
+     * reasoning phase that is on. Session values need no re-checking: they were validated when
+     * the session opened, and disabling thinking per request simply drops the session's effort
+     * instructions, which the encoder already does whenever thinking is disabled.
+     */
+    private ConversationEncoder encoderFor(GenerationRequest request) {
+        ConversationEncoder requestEncoder =
+                encoder.withOverrides(request.thinkingMode(), request.reasoningEffort());
+        if (requestEncoder == encoder) {
+            return requestEncoder;
+        }
+        ChatFormat chatFormat = model.chatFormat();
+        ThinkingMode thinking = requestEncoder.thinkingMode();
+        if (thinking.isExplicit() && !chatFormat.supportsThinking()) {
+            throw new IllegalArgumentException(
+                    "thinkingMode("
+                            + thinking
+                            + ") was requested, but "
+                            + model.getModelType()
+                            + " has no reasoning phase to control."
+                            + " Use ThinkingMode.DEFAULT for a model without one");
+        }
+        ReasoningEffort effort = request.reasoningEffort();
+        if (effort != null && effort.isExplicit()) {
+            if (!chatFormat.supportsReasoningEffort()) {
+                throw new IllegalArgumentException(
+                        "reasoningEffort("
+                                + effort
+                                + ") was requested, but "
+                                + model.getModelType()
+                                + "'s template has no reasoning-effort control."
+                                + " Use ReasoningEffort.DEFAULT for a model without one");
+            }
+            if (thinking == ThinkingMode.DISABLED) {
+                throw new IllegalArgumentException(
+                        "reasoningEffort("
+                                + effort
+                                + ") was requested with thinkingMode(DISABLED): there is no"
+                                + " reasoning phase for it to apply to");
+            }
+        }
+        return requestEncoder;
     }
 
     /**
@@ -373,7 +544,8 @@ final class DelegatingSession implements GenerationSession {
      * later turns continue it, which is why the beginning-of-text and the system prompt appear once
      * and not per request.
      */
-    private List<Integer> encodePrompt(GenerationRequest request) {
+    private List<Integer> encodePrompt(
+            GenerationRequest request, ConversationEncoder requestEncoder) {
         ChatFormat chatFormat = model.chatFormat();
         List<Integer> tokens = new ArrayList<>();
         tokens.addAll(carriedHistory);
@@ -401,9 +573,10 @@ final class DelegatingSession implements GenerationSession {
                         new ChatFormat.Message(ChatFormat.Role.USER, request.prompt())));
         tokens.addAll(
                 chatFormat.encodeHeader(new ChatFormat.Message(ChatFormat.Role.ASSISTANT, "")));
-        // The prompt form gets the same reasoning control as the conversation form: it is session
-        // configuration, and which request shape was used does not change it.
-        encoder.appendThinkingControl(tokens);
+        // The prompt form gets the same reasoning control as the conversation form: which
+        // request shape was used does not change it. The request's own encoder carries any
+        // per-request override, so both forms honour it the same way.
+        requestEncoder.appendThinkingControl(tokens);
         return tokens;
     }
 
@@ -421,6 +594,12 @@ final class DelegatingSession implements GenerationSession {
      * whole history, answer included, is fed again.
      */
     private void dropReasoningFromHistory(int responseStart, List<Integer> responseTokens) {
+        // Rewinding or replaying history would re-feed image placeholder tokens without their
+        // tower rows (and at shifted MRoPE positions once reasoning is cut). Keeping the
+        // reasoning in the cache is the sound trade until replay can restage a plan.
+        if (contextHasImages) {
+            return;
+        }
         int reasoningEnd = responseTokens.indexOf(model.chatFormat().reasoningEndToken());
         if (model.chatFormat().reasoningEndToken() < 0 || reasoningEnd < 0) {
             return;
@@ -475,8 +654,23 @@ final class DelegatingSession implements GenerationSession {
      * content — resets the sequence and re-encodes from the start. Correctness does not depend on
      * detecting <i>why</i> it diverged, only on refusing to reuse when it did.
      */
-    private List<Integer> encodeConversation(GenerationRequest request) {
-        List<Integer> full = encoder.encode(request.messages(), request.tools());
+    private List<Integer> encodeConversation(
+            GenerationRequest request, ConversationEncoder requestEncoder) {
+        ConversationEncoder.EncodedConversation encoded =
+                requestEncoder.encodeConversation(request.messages(), request.tools());
+        List<Integer> full = encoded.tokens();
+        stagedImagePlan = null;
+        if (encoded.hasImages() || contextHasImages) {
+            // No prefix reuse in either direction while images are involved: the retained
+            // tokens cannot prove the retained rows belong to these images. The whole
+            // conversation is re-ingested from a reset sequence, with its plan staged.
+            if (!encodedContext.isEmpty()) {
+                resetForDivergence();
+            }
+            stagedImagePlan = encoded.imagePlan();
+            contextHasImages = encoded.hasImages();
+            return full;
+        }
         if (encodedContext.isEmpty()) {
             // Nothing retained: a fresh session, or one just reset. There is nothing to diverge
             // from and nothing to undo, so the sequence is left exactly as the model set it up.
@@ -502,6 +696,8 @@ final class DelegatingSession implements GenerationSession {
         started = false;
         encodedContext.clear();
         carriedHistory = List.of();
+        stagedImagePlan = null;
+        contextHasImages = false;
         runtime.reset();
     }
 
@@ -531,6 +727,8 @@ final class DelegatingSession implements GenerationSession {
         position = 0;
         started = false;
         encodedContext.clear();
+        stagedImagePlan = null;
+        contextHasImages = false;
         // Only this session's logical state. The lowered runtime deliberately does not reach into
         // the shared workspace here — that would be another session's turn.
         runtime.reset();

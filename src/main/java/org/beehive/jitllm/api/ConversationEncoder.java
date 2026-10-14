@@ -4,9 +4,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.beehive.jitllm.inference.state.MultimodalPromptPlan;
 import org.beehive.jitllm.model.Model;
+import org.beehive.jitllm.model.VisionModel;
 import org.beehive.jitllm.model.format.ChatFormat;
 import org.beehive.jitllm.model.format.ToolCallExtract;
+import org.beehive.jitllm.model.vision.FlashNextVisionConfig;
+import org.beehive.jitllm.model.vision.PreprocessedImage;
 import org.beehive.jitllm.runtime.diagnostics.DiagnosticCode;
 
 /**
@@ -38,6 +42,30 @@ final class ConversationEncoder {
         this.reasoningEffort = reasoningEffort;
     }
 
+    ThinkingMode thinkingMode() {
+        return thinkingMode;
+    }
+
+    ReasoningEffort reasoningEffort() {
+        return reasoningEffort;
+    }
+
+    /**
+     * The encoder for one request whose reasoning controls override this session's, or {@code
+     * this} when neither override is set (or both repeat this encoder's values). An encoder is
+     * only a model reference and the two resolved values — building one per request rebuilds
+     * nothing in the model, its state or its plans; it only changes what {@link
+     * #reasoningInstructions()} and {@link #appendThinkingControl(List)} render for that
+     * request's prompt. A {@code null} argument inherits this encoder's value.
+     */
+    ConversationEncoder withOverrides(ThinkingMode thinkingOverride, ReasoningEffort effortOverride) {
+        ThinkingMode thinking = thinkingOverride == null ? thinkingMode : thinkingOverride;
+        ReasoningEffort effort = effortOverride == null ? reasoningEffort : effortOverride;
+        return thinking == thinkingMode && effort == reasoningEffort
+                ? this
+                : new ConversationEncoder(model, thinking, effort);
+    }
+
     /**
      * The reasoning-effort instructions this conversation's system turn opens with, or an empty
      * string.
@@ -60,13 +88,46 @@ final class ConversationEncoder {
     }
 
     /**
+     * A conversation's tokens plus, when it carries images, the plan that splices their tower
+     * rows and MRoPE positions into those tokens. {@code imagePlan} is null exactly when no
+     * message contains an image, which is what lets the session keep its text-only prefix
+     * reuse: token equality cannot distinguish two different images of the same shape, so an
+     * image-bearing encoding is never partially reused.
+     */
+    record EncodedConversation(List<Integer> tokens, MultimodalPromptPlan imagePlan) {
+        boolean hasImages() {
+            return imagePlan != null;
+        }
+    }
+
+    /** One image after its single preprocess + tower pass, awaiting its span in the tokens. */
+    private record EncodedImage(
+            org.beehive.jitllm.model.vision.ImageGrid grid, float[][] embeddings) {}
+
+    /**
      * The complete model input for a conversation — every token, in order.
      *
      * <p>This whole list is what prefix reuse compares [A1], which is why the tool specifications
      * are encoded here rather than being handled elsewhere: attaching a tool changes the system
      * content, so it changes the encoded input from its first tokens.
+     *
+     * <p>Image-bearing conversations are refused here: their tokens are only half the input
+     * (the tower rows are the other half), and a caller that fed the tokens alone would run
+     * image placeholders through the text embedding table. {@link
+     * #encodeConversation(List, List)} returns both halves.
      */
     List<Integer> encode(List<ChatMessage> messages, List<ToolSpec> tools) {
+        EncodedConversation encoded = encodeConversation(messages, tools);
+        if (encoded.hasImages()) {
+            throw new UnsupportedOperationException(
+                    "image content needs the staged encoding path (encodeConversation);"
+                            + " its tokens alone are not a runnable input");
+        }
+        return encoded.tokens();
+    }
+
+    /** As {@link #encode(List, List)}, with the image splice plan when the conversation has images. */
+    EncodedConversation encodeConversation(List<ChatMessage> messages, List<ToolSpec> tools) {
         ChatFormat chatFormat = model.chatFormat();
         String toolsJson = tools.isEmpty() ? null : buildToolsJson(tools);
         if (toolsJson != null && !chatFormat.supportsToolCalling()) {
@@ -77,6 +138,33 @@ final class ConversationEncoder {
                             + chatFormat.getClass().getSimpleName()
                             + ")");
         }
+
+        // Images are checked the same way tools are, up front: a family without a vision path
+        // (or a model that owns no tower) refuses the request rather than encoding around the
+        // pieces it cannot run. ChatMessage already confines images to USER turns.
+        boolean anyImages =
+                messages.stream()
+                        .flatMap(message -> message.content().stream())
+                        .anyMatch(ChatContent.Image.class::isInstance);
+        VisionModel visionModel = null;
+        FlashNextVisionConfig visionConfig = null;
+        if (anyImages) {
+            if (!chatFormat.supportsImages() || !(model instanceof VisionModel vision)) {
+                throw new UnsupportedOperationException(
+                        "image content is not supported by "
+                                + model.getModelType()
+                                + "'s chat format ("
+                                + chatFormat.getClass().getSimpleName()
+                                + ")");
+            }
+            visionModel = vision;
+            try {
+                visionConfig = visionModel.visionConfig();
+            } catch (java.io.IOException failure) {
+                throw new java.io.UncheckedIOException(failure);
+            }
+        }
+        List<EncodedImage> encodedImages = new ArrayList<>();
 
         List<Integer> tokens = new ArrayList<>();
         if (model.shouldAddBeginOfText()) {
@@ -126,6 +214,17 @@ final class ConversationEncoder {
             }
             switch (message.role()) {
                 case USER -> {
+                    if (message.content().stream().anyMatch(ChatContent.Image.class::isInstance)) {
+                        String toolPrefix =
+                                injectInUserMessage && !toolsInjected
+                                        ? chatFormat.toolFirstUserMessagePrefix(toolsJson)
+                                        : null;
+                        tokens.addAll(
+                                encodeUserWithImages(
+                                        message, toolPrefix, visionModel, visionConfig, encodedImages));
+                        toolsInjected |= toolPrefix != null;
+                        continue;
+                    }
                     String content = textOf(message);
                     if (injectInUserMessage && !toolsInjected) {
                         content = chatFormat.toolFirstUserMessagePrefix(toolsJson) + content;
@@ -214,7 +313,97 @@ final class ConversationEncoder {
                     chatFormat.encodeHeader(new ChatFormat.Message(ChatFormat.Role.ASSISTANT, "")));
             appendThinkingControl(tokens);
         }
-        return tokens;
+        if (encodedImages.isEmpty()) {
+            return new EncodedConversation(tokens, null);
+        }
+        return new EncodedConversation(
+                tokens, imagePlan(tokens, encodedImages, visionConfig));
+    }
+
+    /**
+     * One image-bearing user turn: every image is preprocessed and run through the tower
+     * exactly once here, in content order; the format only ever sees the merged token count
+     * the grid implies. The embeddings wait in {@code encodedImages} until the finished token
+     * list fixes their spans.
+     */
+    private List<Integer> encodeUserWithImages(
+            ChatMessage message,
+            String toolPrefix,
+            VisionModel visionModel,
+            FlashNextVisionConfig visionConfig,
+            List<EncodedImage> encodedImages) {
+        List<ChatFormat.ContentPart> parts = new ArrayList<>();
+        if (toolPrefix != null && !toolPrefix.isEmpty()) {
+            parts.add(new ChatFormat.ContentPart.Text(toolPrefix));
+        }
+        for (ChatContent piece : message.content()) {
+            switch (piece) {
+                case ChatContent.Text text -> parts.add(new ChatFormat.ContentPart.Text(text.text()));
+                case ChatContent.Image image -> {
+                    PreprocessedImage preprocessed;
+                    float[][] embeddings;
+                    try {
+                        preprocessed = visionModel.preprocessImage(image.encodedBytes());
+                        embeddings = visionModel.imageEmbeddings(preprocessed);
+                    } catch (java.io.IOException failure) {
+                        throw new java.io.UncheckedIOException(failure);
+                    }
+                    int tokenCount = visionConfig.tokenCount(preprocessed.grid());
+                    if (embeddings.length != tokenCount) {
+                        throw new IllegalStateException(
+                                "vision tower returned "
+                                        + embeddings.length
+                                        + " rows for grid "
+                                        + preprocessed.grid()
+                                        + ", which expands to "
+                                        + tokenCount);
+                    }
+                    encodedImages.add(new EncodedImage(preprocessed.grid(), embeddings));
+                    parts.add(new ChatFormat.ContentPart.Image(tokenCount));
+                }
+                default ->
+                        throw new IllegalStateException(
+                                "a USER message carries no " + piece.getClass().getSimpleName());
+            }
+        }
+        return model.chatFormat().encodeRichMessage(ChatFormat.Role.USER, parts);
+    }
+
+    /**
+     * Pairs the encoded images, in order, with the image-token runs the format expanded into
+     * the finished tokens, and computes their MRoPE positions. A run count or length that
+     * disagrees with the grids is an encoder/format defect and fails here, before any token
+     * reaches the model.
+     */
+    private static MultimodalPromptPlan imagePlan(
+            List<Integer> tokens, List<EncodedImage> images, FlashNextVisionConfig visionConfig) {
+        int imageTokenId = visionConfig.imageTokenId();
+        int[] ids = tokens.stream().mapToInt(Integer::intValue).toArray();
+        List<MultimodalPromptPlan.ImageSpan> spans = new ArrayList<>();
+        int next = 0;
+        for (int i = 0; i < ids.length; ) {
+            if (ids[i] != imageTokenId) {
+                i++;
+                continue;
+            }
+            int start = i;
+            while (i < ids.length && ids[i] == imageTokenId) i++;
+            if (next >= images.size()) {
+                throw new IllegalStateException("more image token runs than encoded images");
+            }
+            EncodedImage image = images.get(next++);
+            int expected = visionConfig.tokenCount(image.grid());
+            if (i - start != expected) {
+                throw new IllegalStateException(
+                        "image token run at " + start + " has length " + (i - start)
+                                + " but grid " + image.grid() + " expands to " + expected);
+            }
+            spans.add(new MultimodalPromptPlan.ImageSpan(start, image.grid(), image.embeddings()));
+        }
+        if (next != images.size()) {
+            throw new IllegalStateException("encoded images without a token run remain");
+        }
+        return MultimodalPromptPlan.of(ids, spans, imageTokenId, visionConfig.spatialMergeSize());
     }
 
     /**

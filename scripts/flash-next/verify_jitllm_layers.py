@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from safetensors import safe_open
 from sglang.srt.layers.hyperconnection import GatedResidual,HyperConnectionConfig
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent
 PREFIX = "model.language_model.layers.1"
 
 
@@ -121,8 +121,8 @@ def verify(model,gpu_hc_ple=False,gpu_projections=False,device=1,hc_rows=1,fused
         request = Path(temp) / "request.json"
         request.write_text(json.dumps({"hidden": hidden.float().tolist(), "block": block.float().tolist(), "tokens": tokens,
                                        "gpu_projections":gpu_projections,"device":device,"hc_rows":hc_rows,"fused_ple_decode":fused_ple_decode,"trace_hyper":trace_hyper}))
-        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"hc-ple-probe",str(model),str(request)] if gpu_hc_ple else [
-                "java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        command=[sys.executable,str(ROOT/"jitllm_runtime.py"),"hc-ple-probe",str(model),str(request)] if gpu_hc_ple else [
+                "java","-Xmx1g","-cp",str(ROOT/".local/jitllm/target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
         result = subprocess.run(command,capture_output=True,text=True)
         if result.returncode:
             raise RuntimeError(result.stderr)

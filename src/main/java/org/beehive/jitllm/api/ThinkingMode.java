@@ -10,9 +10,12 @@ package org.beehive.jitllm.api;
  * <h2>Where it lives, and where it does not</h2>
  *
  * <p>On {@link ModelOptions} as a model default and on {@link SessionOptions} as a per-session
- * override, resolved once when the session opens — the same shape as execution policy. It is
- * deliberately <b>not</b> on {@code GenerationRequest}: a reasoning mode is configuration, not a
- * per-generation formatting escape hatch, and putting it on the request would make it one.
+ * override, resolved once when the session opens — the same shape as execution policy. {@code
+ * GenerationRequest} may additionally override it for a single request ({@code null} there means
+ * "the session's mode"): the HTTP serving surface needs that, because OpenAI clients carry
+ * {@code chat_template_kwargs.enable_thinking} per request against one long-lived session, and
+ * the only thing a mode changes is how that request's prompt is encoded. Resolution is request
+ * over session over model, and an unset request override leaves prior behaviour bit-identical.
  */
 public enum ThinkingMode {
 

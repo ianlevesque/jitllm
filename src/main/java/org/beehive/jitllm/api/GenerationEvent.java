@@ -23,11 +23,27 @@ import java.util.Objects;
  * @param tokenId the model's token id — never a terminal stop or control token, which are not
  *     emitted and are not counted in {@link GenerationResult#generatedTokens()}
  * @param text the text this token completed, possibly empty
+ * @param tokenLogprob this token's log-probability entry, or {@code null} when the request did
+ *     not ask for log-probabilities (or the executing path could not supply one for this token —
+ *     see {@link TokenLogprob})
  */
-public record GenerationEvent(int tokenId, String text) {
+public record GenerationEvent(int tokenId, String text, TokenLogprob tokenLogprob) {
 
-    public GenerationEvent {
-        Objects.requireNonNull(text, "text; use an empty string for a token that completes none");
+    @Experimental
+    public GenerationEvent(int tokenId, String text, TokenLogprob tokenLogprob) {
+        this.tokenId = tokenId;
+        this.text = Objects.requireNonNull(text, "text; use an empty string for a token that completes none");
+        this.tokenLogprob = tokenLogprob;
+    }
+
+    @Experimental
+    public TokenLogprob tokenLogprob() {
+        return tokenLogprob;
+    }
+
+    /** An event without log-probability information, as every event was before it existed. */
+    public GenerationEvent(int tokenId, String text) {
+        this(tokenId, text, null);
     }
 
     /** Whether this event carries text a display would show. */

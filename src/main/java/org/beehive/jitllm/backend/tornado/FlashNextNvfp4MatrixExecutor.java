@@ -17,18 +17,21 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
  * padded rows are zero. No weight or activation is expanded to BF16 before GEMM.
  */
 public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
-    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices) {}
-    private record Key(ModelOptMatrix matrix,int paddedBatch) {}
+    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long cacheHits,long cacheMisses,long hostUploadBytes,long hostDownloadBytes) {}
+    /** Entries are split by input mode so each graph only re-uploads the buffers its mode reads:
+     * the quantizer kernel ignores the raw input for packed activations and fully overwrites
+     * the packed buffers before the GEMM reads them for on-device quantization. */
+    private record Key(ModelOptMatrix matrix,int paddedBatch,boolean quantizeOnDevice) {}
     private final TornadoDevice device;
     private final long budget;
     private final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
-    private long resident,uploads,evictions,executions,kernelNanos,graphId;
+    private long resident,uploads,evictions,executions,kernelNanos,graphId,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     public FlashNextNvfp4MatrixExecutor(int device,long budget) {this(TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(device),budget);}
     public FlashNextNvfp4MatrixExecutor(TornadoDevice device,long budget) {
         if(budget<=0) throw new IllegalArgumentException("Positive native NVFP4 budget required");this.device=device;this.budget=budget;
     }
-    public synchronized Statistics statistics() {return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size());}
+    public synchronized Statistics statistics() {return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size(),cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes);}
     private static int padded(int rows) {if(rows<=0) throw new IllegalArgumentException("Positive NVFP4 batch required");return Math.multiplyExact((Math.addExact(rows,31)/32),32);}
     private static long scales(int rows,int columns) {return Math.multiplyExact(((long)rows+127)/128*128,columns/16);}
     private static long bytes(Key key) {
@@ -55,9 +58,14 @@ public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
         final IntArray initialized;
         final TornadoExecutionPlan plan;
         TornadoExecutionResult lastResult;
-        final long bytes;
+        final long bytes,everyUploadBytes,everyDownloadBytes;
         Entry(Key key) throws Exception {
-            bytes=bytes(key);TornadoExecutionPlan built=null;
+            bytes=bytes(key);
+            everyUploadBytes=key.quantizeOnDevice()
+                    ? 4L*key.paddedBatch*key.matrix.columns()+12+20
+                    : (long)key.paddedBatch*key.matrix.columns()/2+(long)key.paddedBatch*key.matrix.columns()/16+12+20;
+            everyDownloadBytes=4L*key.paddedBatch*key.matrix.rows();
+            TornadoExecutionPlan built=null;
             try {
                 var matrix=key.matrix;int batch=key.paddedBatch,columns=matrix.columns(),rows=matrix.rows();
                 var weights=mapped(matrix.weights(),arena);var weightScales=mapped(matrix.blockScales(),arena);
@@ -74,8 +82,12 @@ public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
                 var result=BFloat16Array.fromSegmentShallow(arena.allocate(TornadoNativeArray.ARRAY_HEADER+2L*batch*rows,32));
                 output=FloatArray.fromSegmentShallow(arena.allocate(TornadoNativeArray.ARRAY_HEADER+4L*batch*rows,32));
                 var graph=new TaskGraph("flashnextNvfp4"+(graphId++))
-                        .transferToDevice(DataTransferMode.FIRST_EXECUTION,weights,weightScales,swizzledWeights,swizzledInput,result,e4,e2)
-                        .transferToDevice(DataTransferMode.EVERY_EXECUTION,packed,rawScales,alphaBeta,initialized,rawInput)
+                        .transferToDevice(DataTransferMode.FIRST_EXECUTION,weights,weightScales,swizzledWeights,swizzledInput,result,e4,e2);
+                if(key.quantizeOnDevice()) graph.transferToDevice(DataTransferMode.FIRST_EXECUTION,packed,rawScales)
+                        .transferToDevice(DataTransferMode.EVERY_EXECUTION,alphaBeta,initialized,rawInput);
+                else graph.transferToDevice(DataTransferMode.FIRST_EXECUTION,rawInput)
+                        .transferToDevice(DataTransferMode.EVERY_EXECUTION,packed,rawScales,alphaBeta,initialized);
+                graph
                         .task("quantize",FlashNextWeightKernels::quantizeNvfp4,rawInput,alphaBeta,initialized,e4,e2,packed,rawScales)
                         .task("weightScales",FlashNextWeightKernels::swizzleNvfp4Scales,weightScales,swizzledWeights,initialized,rows,columns/16,1)
                         .task("inputScales",FlashNextWeightKernels::swizzleNvfp4Scales,rawScales,swizzledInput,initialized,batch,columns/16,0)
@@ -90,7 +102,7 @@ public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
         @Override public void close() throws Exception {try {plan.close();} finally {arena.close();}}
     }
     private Entry entry(Key key) throws IOException {
-        if(closed) throw new IOException("Native NVFP4 cache is closed");var entry=cache.get(key);if(entry!=null) return entry;
+        if(closed) throw new IOException("Native NVFP4 cache is closed");var entry=cache.get(key);if(entry!=null) {cacheHits++;return entry;}cacheMisses++;
         long bytes=bytes(key);if(bytes>budget) throw new IOException("Native NVFP4 matrix/workspace exceeds cache budget "+budget);
         while(bytes>budget-resident) {
             var iterator=cache.entrySet().iterator();var oldest=iterator.next();
@@ -106,7 +118,7 @@ public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
         int batch=padded(inputs.length),columns=matrix.columns();float scale=inputs[0].globalScale();
         for(var input:inputs) if(input.values().length!=columns/2 || input.scales().length!=columns/16 || input.globalScale()!=scale || !Float.isFinite(scale) || scale<=0)
             throw new IllegalArgumentException("Invalid native NVFP4 input dimensions/scales");
-        var entry=entry(new Key(matrix,batch));entry.packed.getSegment().fill((byte)0);entry.rawScales.getSegment().fill((byte)0);
+        var entry=entry(new Key(matrix,batch,false));entry.packed.getSegment().fill((byte)0);entry.rawScales.getSegment().fill((byte)0);
         for(int row=0;row<inputs.length;row++) {
             entry.packed.getSegment().asSlice((long)row*columns/2,columns/2).copyFrom(java.lang.foreign.MemorySegment.ofArray(inputs[row].values()));
             entry.rawScales.getSegment().asSlice((long)row*columns/16,columns/16).copyFrom(java.lang.foreign.MemorySegment.ofArray(inputs[row].scales()));
@@ -119,14 +131,16 @@ public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
         if(!matrix.dtype().equals("U8") || input.length!=Math.multiplyExact(batch,matrix.columns()) || output.length!=Math.multiplyExact(batch,matrix.rows())
                 || !Float.isFinite(scale) || scale<=0 || !Float.isFinite(1f/scale)) throw new IllegalArgumentException("Invalid native NVFP4 input");
         for(float value:input) if(!Float.isFinite(value)) throw new IllegalArgumentException("Nonfinite native NVFP4 input");
-        var entry=entry(new Key(matrix,padded(batch)));entry.rawInput.getSegment().fill((byte)0);
+        var entry=entry(new Key(matrix,padded(batch),true));entry.rawInput.getSegment().fill((byte)0);
         for(int i=0;i<input.length;i++) entry.rawInput.set(i,input[i]);
         entry.alphaBeta.set(0,matrix.globalScale()*scale);entry.alphaBeta.set(1,0);entry.alphaBeta.set(2,1f/scale);entry.initialized.set(1,1);
         run(entry,output);
     }
     /** Explicit diagnostics only; normal projections never download their quantized activations. */
     public synchronized byte[][] readPacked(ModelOptMatrix matrix,int batch) {
-        var entry=cache.get(new Key(matrix,padded(batch)));if(entry==null) throw new IllegalStateException("Native NVFP4 batch is not cached");
+        var entry=cache.get(new Key(matrix,padded(batch),true));
+        if(entry==null) entry=cache.get(new Key(matrix,padded(batch),false));
+        if(entry==null) throw new IllegalStateException("Native NVFP4 batch is not cached");
         entry.lastResult.transferToHost(entry.packed,entry.rawScales);
         byte[] values=new byte[batch*matrix.columns()/2],scales=new byte[batch*matrix.columns()/16];
         java.lang.foreign.MemorySegment.ofArray(values).copyFrom(entry.packed.getSegment().asSlice(0,values.length));
@@ -138,7 +152,7 @@ public final class FlashNextNvfp4MatrixExecutor implements AutoCloseable {
             var result=entry.plan.execute();long nanos=result.getProfilerResult().getDeviceKernelTime();if(nanos<=0) throw new IOException("Native NVFP4 recorded no CUDA kernel");
             entry.lastResult=result;
             for(int i=0;i<output.length;i++) output[i]=entry.output.get(i);
-            entry.initialized.set(0,1);kernelNanos+=nanos;executions++;
+            entry.initialized.set(0,1);kernelNanos+=nanos;executions++;hostUploadBytes+=entry.everyUploadBytes;hostDownloadBytes+=entry.everyDownloadBytes;
         } catch(RuntimeException failure) {throw new IOException("Native NVFP4 GEMM failed",failure);}
     }
     @Override public synchronized void close() throws IOException {

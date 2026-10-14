@@ -1,18 +1,20 @@
-"""Build the pinned CUDA/JDK 25 TornadoVM SDK for this checkout."""
+"""Build the pinned CUDA TornadoVM SDK with this launcher's native CUDA libraries."""
 import os
 from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
-from jitllm_native_libraries import prepare_native_aliases
 
-ROOT = Path(__file__).resolve().parents[2]
+from prepare_jitllm_source import ROOT, SOURCE, prepare
+from jitllm_native_libraries import prepare_native_aliases
 
 TORNADOVM_REF = "a40ccf9a692fc06fe4c499f3700a3037e91dfebe"
 
 
 def prepare_runtime() -> None:
+    prepare()
     env = os.environ.copy()
+    env.setdefault("JAVA_HOME", "/usr/lib/jvm/java-25-openjdk-amd64")
     jdk21 = Path(env.get("JVMCI_SOURCE_JDK", str(ROOT / ".local/jitllm-jdk21")))
     if not (jdk21 / "lib/modules").exists():
         if "JVMCI_SOURCE_JDK" in env:
@@ -30,15 +32,13 @@ def prepare_runtime() -> None:
             import shutil
             shutil.copytree(candidates[0], jdk21)
     env["JVMCI_SOURCE_JDK"] = str(jdk21)
-    # Optional pip-installed CUDA 13/cuDNN 9 dependencies. Otherwise use the system toolchain.
-    if env.get("JITLLM_NVIDIA_DIR"):
-        native = Path(env["JITLLM_NVIDIA_DIR"]).resolve()
-        libraries = prepare_native_aliases(native,ROOT / ".local/jitllm-native-libs")
-        env["CPLUS_INCLUDE_PATH"] = ":".join([str(native / "cudnn/include"), str(native / "cu13/include"), env.get("CPLUS_INCLUDE_PATH", "")])
-        env["LIBRARY_PATH"] = ":".join([str(libraries), env.get("LIBRARY_PATH", "")])
-    subprocess.run([str(ROOT / "scripts/tornadovm-dev.sh"), "setup", "--ref", TORNADOVM_REF,
+    native = ROOT / ".venv-qwen-flash-next/lib/python3.13/site-packages/nvidia"
+    libraries = prepare_native_aliases(native,ROOT / ".local/jitllm-native-libs")
+    env["CPLUS_INCLUDE_PATH"] = ":".join([str(native / "cudnn/include"), str(native / "cu13/include"), env.get("CPLUS_INCLUDE_PATH", "")])
+    env["LIBRARY_PATH"] = ":".join([str(libraries), env.get("LIBRARY_PATH", "")])
+    subprocess.run([str(SOURCE / "scripts/tornadovm-dev.sh"), "setup", "--ref", TORNADOVM_REF,
                     "--backend", "cuda", "--jdk", "25", "--root", str(ROOT / ".local/jitllm-tornadovm")],
-                   cwd=ROOT, env=env, check=True)
+                   cwd=SOURCE, env=env, check=True)
 
 
 if __name__ == "__main__":

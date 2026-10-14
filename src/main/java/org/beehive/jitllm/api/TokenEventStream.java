@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.IntFunction;
+import org.beehive.jitllm.inference.sampler.SampledTokenLogprob;
 import org.beehive.jitllm.tokenizer.Tokenizer;
 
 /**
@@ -41,6 +43,15 @@ final class TokenEventStream {
     private final Consumer<GenerationEvent> onEvent;
     private final Consumer<String> onText;
 
+    /**
+     * Supplies the sampler's captured entry for a token id, in sample order, or {@code null}
+     * when log-probabilities were not asked for. The sampler records an entry as it returns a
+     * token, before the loop hands that token to {@link #accept(int)}, so the entry for a token
+     * is already there when it arrives here; it is held with the token and dropped with a
+     * terminal stop token, for the same reason the token is.
+     */
+    private final IntFunction<SampledTokenLogprob> logprobForToken;
+
     /** Tokens decoded so far that have not yet produced complete text. */
     private final List<Integer> pending = new ArrayList<>();
 
@@ -48,24 +59,36 @@ final class TokenEventStream {
 
     private boolean holding;
     private int heldToken;
+    private SampledTokenLogprob heldLogprob;
 
     TokenEventStream(
             Tokenizer tokenizer,
             Set<Integer> stopTokens,
             Consumer<GenerationEvent> onEvent,
             Consumer<String> onText) {
+        this(tokenizer, stopTokens, onEvent, onText, null);
+    }
+
+    TokenEventStream(
+            Tokenizer tokenizer,
+            Set<Integer> stopTokens,
+            Consumer<GenerationEvent> onEvent,
+            Consumer<String> onText,
+            IntFunction<SampledTokenLogprob> logprobForToken) {
         this.tokenizer = tokenizer;
         this.stopTokens = stopTokens;
         this.onEvent = onEvent;
         this.onText = onText;
+        this.logprobForToken = logprobForToken;
     }
 
     /** Called for every token the loop produces, terminal stop token included. */
     void accept(int token) {
         if (holding) {
-            emit(heldToken);
+            emit(heldToken, heldLogprob);
         }
         heldToken = token;
+        heldLogprob = logprobForToken == null ? null : logprobForToken.apply(token);
         holding = true;
     }
 
@@ -76,24 +99,47 @@ final class TokenEventStream {
      */
     String finish() {
         if (holding && !stopTokens.contains(heldToken)) {
-            emit(heldToken);
+            emit(heldToken, heldLogprob);
         }
         holding = false;
+        heldLogprob = null;
         return text.toString();
     }
 
-    private void emit(int token) {
+    private void emit(int token, SampledTokenLogprob sampled) {
         String piece = decodeIncrementally(token);
         text.append(piece);
         // onEvent first, then onToken for the same event [A5]. A throwing onEvent means
         // onToken does not see this token: the exception propagates, and no later callback for the
         // event runs.
         if (onEvent != null) {
-            onEvent.accept(new GenerationEvent(token, piece));
+            onEvent.accept(new GenerationEvent(token, piece, tokenLogprob(token, piece, sampled)));
         }
         if (onText != null && !piece.isEmpty()) {
             onText.accept(piece);
         }
+    }
+
+    /**
+     * The facade entry for one emitted token, or {@code null} when the sampler supplied none —
+     * not asked for, or an executing path that sampled somewhere the capture could not see (a
+     * device-side sampler), where inventing a number would be worse than reporting none.
+     * Alternative texts are single-token decodes; a token the tokenizer does not display keeps an
+     * empty text, as an event for it would.
+     */
+    private TokenLogprob tokenLogprob(int token, String piece, SampledTokenLogprob sampled) {
+        if (sampled == null || sampled.tokenId() != token) {
+            return null;
+        }
+        List<TokenLogprob.Alternative> alternatives = new ArrayList<>(sampled.topLogprobs().size());
+        for (SampledTokenLogprob.Top top : sampled.topLogprobs()) {
+            String text =
+                    tokenizer.shouldDisplayToken(top.tokenId())
+                            ? tokenizer.decode(List.of(top.tokenId()))
+                            : "";
+            alternatives.add(new TokenLogprob.Alternative(top.tokenId(), text, top.logprob()));
+        }
+        return new TokenLogprob(token, piece, sampled.logprob(), alternatives);
     }
 
     /**

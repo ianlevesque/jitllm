@@ -19,7 +19,7 @@ final class FlashNextFp8ExpertCache implements AutoCloseable {
     record Resource(int id,float[] scales) {}
     final TornadoDevice device;
     long budget;
-    long resident,uploads,evictions,readBytes;
+    long resident,uploads,evictions,readBytes,hits,misses,evictedBytes;
     final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
     boolean closed;
     FlashNextFp8ExpertCache(TornadoDevice device,long budget) {this.device=device;this.budget=budget;}
@@ -27,13 +27,15 @@ final class FlashNextFp8ExpertCache implements AutoCloseable {
         final Set<Key> keys=new HashSet<>();
         Resource get(ModelOptMatrix first,ModelOptMatrix second) throws IOException {
             var key=new Key(first,second);var entry=cache.get(key);
+            if(entry!=null) hits++;
             if(entry==null) {
+                misses++;
                 long size=size(key);if(size>budget) throw new IOException("Expert resource exceeds budget");
                 while(size>budget-resident) {
                     var candidate=cache.entrySet().iterator();Entry victim=null;
                     while(candidate.hasNext()) {var item=candidate.next();if(!keys.contains(item.getKey())) {victim=item.getValue();candidate.remove();break;}}
                     if(victim==null) throw new IOException("Expert cache cannot hold the pinned selected experts");
-                    victim.close();resident-=victim.bytes;evictions++;
+                    victim.close();resident-=victim.bytes;evictions++;evictedBytes+=victim.bytes;
                 }
                 entry=new Entry(key);cache.put(key,entry);resident+=entry.bytes;uploads++;
             }

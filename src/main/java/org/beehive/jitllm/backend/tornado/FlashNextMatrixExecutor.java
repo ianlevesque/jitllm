@@ -19,38 +19,68 @@ import uk.ac.manchester.tornado.api.common.TornadoDevice;
 
 /** Bounded, storage-preserving GPU projections for the full host layer pipeline. */
 public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseable {
-    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long bf16ResidentBytes,long bf16Executions,long nvfp4ResidentBytes,long nvfp4Executions) {}
+    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long bf16ResidentBytes,long bf16Executions,long nvfp4ResidentBytes,long nvfp4Executions,
+                             long cacheHits,long cacheMisses,long hostUploadBytes,long hostDownloadBytes) {}
+    /** Sub-cache budgets: plain (this cache), BF16 GEMM, BF16/F32 GEMM and native NVFP4 shares. */
+    record BudgetSplit(long plain,long bf16,long bf16Float,long nvfp4) {}
+    private static final long SUB_CACHE_CAP=2L<<30;
+    /**
+     * Plain and NVFP4 shares partition {@code budget} exactly as before. The BF16 sub-caches
+     * stay additive on top (as the legacy fixed 256 MiB was), but scale with the budget:
+     * the legacy cap held only a handful of the 194 HC matrices, so every HC projection
+     * rebuilt its plan and re-uploaded its weights on every token. Derived shares are never
+     * below the legacy values; {@code jitllm.qwen4.bf16CacheBytes} /
+     * {@code jitllm.qwen4.bf16FloatCacheBytes} override them when set to a positive value
+     * (a float value of 0 disables the FP32-accumulator cache).
+     */
+    static BudgetSplit splitBudgets(long budget,boolean nativeNvfp4,long bf16Override,long bf16FloatOverride) {
+        if(budget<=0) throw new IllegalArgumentException("Positive GPU weight cache budget required");
+        if(nativeNvfp4 && budget<2) throw new IllegalArgumentException("Native NVFP4 requires a split cache budget");
+        long plain=nativeNvfp4 ? budget/2 : budget;
+        long packed=nativeNvfp4 ? budget-plain : 0;
+        long legacyTotal=Math.min(budget,256L<<20);
+        long legacyFloat=legacyTotal<2 ? 0 : Math.max(1,legacyTotal/4);
+        long legacyBf16=legacyTotal-legacyFloat;
+        long floatBudget=bf16FloatOverride>=0 ? bf16FloatOverride : Math.min(SUB_CACHE_CAP,Math.max(legacyFloat,budget/4));
+        long bfBudget=bf16Override>0 ? bf16Override : Math.min(SUB_CACHE_CAP,Math.max(legacyBf16,budget/8));
+        if(bfBudget<=0) throw new IllegalArgumentException("BF16 GEMM cache budget must be positive");
+        return new BudgetSplit(plain,bfBudget,floatBudget,packed);
+    }
     private final TornadoDevice device;
     private final long budget;
     private final FlashNextBf16MatrixExecutor bf16;
     private final FlashNextBf16FloatMatrixExecutor bf16Float;
     private final FlashNextNvfp4MatrixExecutor nvfp4;
     private final LinkedHashMap<ModelOptMatrix,Entry> cache=new LinkedHashMap<>(16,.75f,true);
-    private long resident,uploads,evictions,executions,kernelNanos,graphId;
+    private long resident,uploads,evictions,executions,kernelNanos,graphId,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
 
     public FlashNextMatrixExecutor(int deviceIndex,long budget) {
         this(deviceIndex,budget,false);
     }
     public FlashNextMatrixExecutor(int deviceIndex,long budget,boolean nativeNvfp4) {
-        if(budget<=0) throw new IllegalArgumentException("Positive GPU weight cache budget required");
-        if(nativeNvfp4 && budget<2) throw new IllegalArgumentException("Native NVFP4 requires a split cache budget");
+        var split=splitBudgets(budget,nativeNvfp4,Long.getLong("jitllm.qwen4.bf16CacheBytes",-1),Long.getLong("jitllm.qwen4.bf16FloatCacheBytes",-1));
         this.device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);
-        this.budget=nativeNvfp4 ? budget/2 : budget;
-        nvfp4=nativeNvfp4 ? new FlashNextNvfp4MatrixExecutor(device,budget-this.budget) : null;
-        long bfBudget=Math.min(budget,256L<<20),floatBudget=bfBudget<2 ? 0 : Math.max(1,bfBudget/4);
-        bf16=new FlashNextBf16MatrixExecutor(device,bfBudget-floatBudget);
-        bf16Float=floatBudget==0 ? null : new FlashNextBf16FloatMatrixExecutor(deviceIndex,floatBudget);
+        this.budget=split.plain();
+        nvfp4=nativeNvfp4 ? new FlashNextNvfp4MatrixExecutor(device,split.nvfp4()) : null;
+        bf16=new FlashNextBf16MatrixExecutor(device,split.bf16());
+        bf16Float=split.bf16Float()==0 ? null : new FlashNextBf16FloatMatrixExecutor(deviceIndex,split.bf16Float());
     }
     public String deviceName() { return device.getPhysicalDevice().getDeviceName(); }
     @Override public boolean quantizesNvfp4OnDevice() {return nvfp4!=null;}
     public synchronized Statistics statistics() {
         var extra=bf16.statistics();var packed=nvfp4==null ? null : nvfp4.statistics();
+        var floated=bf16Float==null ? null : bf16Float.statistics();
         return new Statistics(resident+(packed==null ? 0 : packed.residentBytes()),uploads+(packed==null ? 0 : packed.uploads()),evictions+(packed==null ? 0 : packed.evictions()),
                 executions+(packed==null ? 0 : packed.executions()),kernelNanos+(packed==null ? 0 : packed.kernelNanos()),cache.size()+(packed==null ? 0 : packed.matrices()),
-                extra.residentBytes()+(bf16Float==null ? 0 : bf16Float.statistics().residentBytes()),extra.executions()+(bf16Float==null ? 0 : bf16Float.statistics().executions()),packed==null ? 0 : packed.residentBytes(),packed==null ? 0 : packed.executions());
+                extra.residentBytes()+(floated==null ? 0 : floated.residentBytes()),extra.executions()+(floated==null ? 0 : floated.executions()),packed==null ? 0 : packed.residentBytes(),packed==null ? 0 : packed.executions(),
+                cacheHits+extra.cacheHits()+(floated==null ? 0 : floated.cacheHits())+(packed==null ? 0 : packed.cacheHits()),
+                cacheMisses+extra.cacheMisses()+(floated==null ? 0 : floated.cacheMisses())+(packed==null ? 0 : packed.cacheMisses()),
+                hostUploadBytes+extra.hostUploadBytes()+(floated==null ? 0 : floated.hostUploadBytes())+(packed==null ? 0 : packed.hostUploadBytes()),
+                hostDownloadBytes+extra.hostDownloadBytes()+(floated==null ? 0 : floated.hostDownloadBytes())+(packed==null ? 0 : packed.hostDownloadBytes()));
     }
-    public synchronized FlashNextBf16FloatMatrixExecutor.Statistics bf16FloatStatistics() {return bf16Float==null ? new FlashNextBf16FloatMatrixExecutor.Statistics(0,0,0,0,0,0) : bf16Float.statistics();}
+    public synchronized FlashNextBf16FloatMatrixExecutor.Statistics bf16FloatStatistics() {return bf16Float==null ? new FlashNextBf16FloatMatrixExecutor.Statistics(0,0,0,0,0,0,0,0,0,0) : bf16Float.statistics();}
+    public synchronized FlashNextBf16MatrixExecutor.Statistics bf16Statistics() {return bf16.statistics();}
 
     // PRIVATE mappings let Tornado's array header occupy a private copy of the preceding
     // bytes. No checkpoint bytes are changed, and no full host weight copy is required.
@@ -71,7 +101,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
     }
     private final class Entry implements AutoCloseable {
         final Arena arena=Arena.ofShared();
-        final long bytes;
+        final long bytes,everyUploadBytes;
         final FloatArray input,output,alpha;
         final ByteArray packedInput,inputScales;
         final IntArray mode;
@@ -79,6 +109,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         Entry(ModelOptMatrix matrix) throws Exception {
             bytes=matrix.weights().bytes()+(matrix.blockScales()==null ? 0 : matrix.blockScales().bytes())
                     +4L*(matrix.columns()+matrix.rows()+273)+matrix.columns()/2+matrix.columns()/16;
+            everyUploadBytes=4L*matrix.columns()+(matrix.dtype().equals("U8") ? matrix.columns()/2+matrix.columns()/16+8L : 0);
             TornadoExecutionPlan plainPlan=null;
             try {
                 var weights=mapped(matrix.weights(),arena);
@@ -125,7 +156,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
     }
     private Entry entry(ModelOptMatrix matrix) throws IOException {
         if(closed) throw new IOException("GPU projection cache is closed");
-        Entry result=cache.get(matrix);if(result!=null) return result;
+        Entry result=cache.get(matrix);if(result!=null) {cacheHits++;return result;}cacheMisses++;
         long size=matrix.weights().bytes()+(matrix.blockScales()==null ? 0 : matrix.blockScales().bytes())+4L*(matrix.columns()+matrix.rows()+273)+matrix.columns()/2+matrix.columns()/16;
         if(size>budget) throw new IOException("Matrix "+matrix.weights().name()+" needs "+size+" bytes, exceeding GPU cache budget "+budget);
         while(resident+size>budget) {
@@ -180,7 +211,7 @@ public final class FlashNextMatrixExecutor implements MatrixExecutor,AutoCloseab
         try {
             long nanos=plan.execute().getProfilerResult().getDeviceKernelTime();
             if(nanos<=0) throw new IOException("GPU projection recorded no kernel execution");
-            kernelNanos+=nanos;executions++;
+            kernelNanos+=nanos;executions++;hostUploadBytes+=entry.everyUploadBytes;hostDownloadBytes+=4L*output.length;
             for(int i=0;i<output.length;i++) output[i]=entry.output.get(i);
         } catch(RuntimeException failure) {throw new IOException("GPU projection failed",failure);}
     }

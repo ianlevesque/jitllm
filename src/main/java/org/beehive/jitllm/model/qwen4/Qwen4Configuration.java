@@ -79,6 +79,13 @@ public record Qwen4Configuration(int dim, int hiddenDim, int numberOfLayers,
         return Math.addExact(Math.multiplyExact(layers, delta + conv), ple);
     }
 
+    /**
+     * Loads the checkpoint configuration. A {@code requestedContext} of 0 (the {@code ModelOptions}
+     * spelling of "the model's own") or negative (the loader spelling) selects the checkpoint's
+     * native {@code max_position_embeddings} in full; a positive value below it is honoured as a
+     * cap, and one above it is refused here, naming both numbers, rather than failing later as a
+     * generic dimension inconsistency.
+     */
     public static Qwen4Configuration load(Path directory, int requestedContext) throws IOException {
         Map<String, Object> root = MetadataJson.parseObject(Files.readString(directory.resolve("config.json")));
         if (!"qwen4_exp".equals(root.get("model_type"))) throw new IOException("Expected qwen4_exp checkpoint");
@@ -89,6 +96,11 @@ public record Qwen4Configuration(int dim, int hiddenDim, int numberOfLayers,
         if (!"silu".equals(text.get("hidden_act"))) throw new IOException("Unsupported Qwen4 MLP activation");
         if(integer(text,"indexer_kv_heads")!=1) throw new IOException("QSA indexer requires one KV head");
         int context = integer(text, "max_position_embeddings");
+        if (context <= 0) throw new IOException("Invalid Qwen4 max_position_embeddings: " + context);
+        if (requestedContext > context)
+            throw new IOException("Requested context length " + requestedContext
+                    + " exceeds the checkpoint's native max_position_embeddings " + context
+                    + "; lower --ctx-size/contextLength to at most " + context);
         int headDim = integer(text, "head_dim");
         double rotary = number(rope, "partial_rotary_factor").doubleValue() * headDim;
         if (rotary != Math.rint(rotary)) throw new IOException("Fractional RoPE dimension");
@@ -100,7 +112,7 @@ public record Qwen4Configuration(int dim, int hiddenDim, int numberOfLayers,
         for(Object section:(List<?>)rope.getOrDefault("mrope_section",List.of())) sections.add(exactInt(section));
         return new Qwen4Configuration(integer(text,"hidden_size"), integer(text,"moe_intermediate_size"),
                 integer(text,"num_hidden_layers"), integer(text,"num_attention_heads"), integer(text,"num_key_value_heads"), headDim,
-                integer(text,"vocab_size"), context, requestedContext < 0 ? context : requestedContext,
+                integer(text,"vocab_size"), context, requestedContext <= 0 ? context : requestedContext,
                 number(text,"rms_norm_eps").floatValue(), number(rope,"rope_theta").floatValue(), (int) rotary,
                 integer(text,"hc_count"), integer(text,"hc_lowrank"), integer(text,"num_experts"), integer(text,"num_experts_per_tok"),
                 integer(text,"shared_expert_intermediate_size"), Boolean.TRUE.equals(text.get("norm_topk_prob")),

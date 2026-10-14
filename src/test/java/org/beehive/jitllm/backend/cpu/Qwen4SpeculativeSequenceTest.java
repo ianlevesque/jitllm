@@ -21,13 +21,13 @@ public class Qwen4SpeculativeSequenceTest {
         Arrays.fill(output.logits(),valid,output.logits().length,Float.NEGATIVE_INFINITY);return output;
     }
     private abstract static class Endpoint implements Qwen4SpeculativeSequence.Endpoint {
-        int position,hash,maxSnapshots;boolean closed;final Set<Saved> saved=new HashSet<>();
+        int position,hash,maxSnapshots,snapshotsTaken;boolean closed;final Set<Saved> saved=new HashSet<>();
         final class Saved implements Qwen4SpeculativeSequence.Checkpoint {
             final Endpoint owner=Endpoint.this;final int length=position,value=hash;boolean valid=true,disposed;
             public void close() {disposed=true;saved.remove(this);}
         }
         public int position() {return position;}
-        public Qwen4SpeculativeSequence.Checkpoint snapshot() {var s=new Saved();saved.add(s);maxSnapshots=Math.max(maxSnapshots,saved.size());return s;}
+        public Qwen4SpeculativeSequence.Checkpoint snapshot() {var s=new Saved();saved.add(s);snapshotsTaken++;maxSnapshots=Math.max(maxSnapshots,saved.size());return s;}
         public void restore(Qwen4SpeculativeSequence.Checkpoint value) {
             var s=(Saved)value;if(s.owner!=this || !s.valid || s.disposed || s.length>position) throw new IllegalArgumentException("Invalid checkpoint");
             for(var future:saved) if(future.length>s.length) future.valid=false;position=s.length;hash=s.value;
@@ -123,6 +123,20 @@ public class Qwen4SpeculativeSequenceTest {
             var full=new ArrayList<Integer>(List.of(2,3));full.addAll(first);full.add(7);
             assertEquals(baseline(full,5,Sampler.TENSOR_ARGMAX),sequence.generate(6,List.of(7),Set.of(),12,Sampler.TENSOR_ARGMAX,null));
             sequence.reset();assertEquals(0,sequence.position());assertEquals(first,sequence.generate(0,List.of(2,3),Set.of(),6,Sampler.TENSOR_ARGMAX,null));
+        }
+    }
+    @Test public void verificationSkipsTheIdentityFinalPrefixCheckpoint() throws Exception {
+        var target=new Target();var draft=new Draft(0);
+        try(var sequence=new Qwen4SpeculativeSequence(target,draft,64,VOCAB,null)) {
+            var tokens=sequence.generate(0,List.of(2,3,4),Set.of(),18,Sampler.TENSOR_ARGMAX,null);
+            assertEquals(baseline(List.of(2,3,4),15,Sampler.TENSOR_ARGMAX),tokens);
+            var stats=sequence.statistics();
+            assertTrue(stats.rounds()>0);
+            // One snapshot from ingest, then per round one base snapshot plus one prefix
+            // snapshot per proposed candidate; none after the final verified forward.
+            assertEquals(1+stats.rounds()+stats.proposed(),target.snapshotsTaken);
+            assertTrue(stats.checkpointsSkipped()>=stats.rounds());
+            assertEquals(0,target.saved.size());
         }
     }
     @Test public void targetAndDeferredTeacherFailuresRetryWithoutAnotherSamplerDraw() throws Exception {

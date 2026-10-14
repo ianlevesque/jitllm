@@ -64,21 +64,32 @@ public class OpenAIServerValidationTest {
     }
 
     /**
-     * The 13k-token prompt against an 8k window that ran for hours and returned a successful but
-     * empty completion. 52_000 / 4 = 13_000 estimated tokens.
+     * The prompt that cannot fit even at a generous 8 characters per token: 104_000 / 8 = 13_000
+     * minimum tokens against an 8k window.
      */
     @Test
     public void aPromptGrosslyOverTheWindowIsRejected() {
-        String err = validate(SERVED, 256, 52_000);
-        assertTrue("must report the estimate: " + err, err.contains("13000"));
-        assertTrue("must report the characters: " + err, err.contains("52000"));
+        String err = validate(SERVED, 256, 104_000);
+        assertTrue("must report the estimate: " + err, err.contains("26000"));
+        assertTrue("must report the characters: " + err, err.contains("104000"));
     }
 
     @Test
     public void aPromptThatFitsOnlyWithoutTheOutputBudgetIsRejected() {
-        // ~8000 estimated prompt tokens leaves 192 of the window, less than max_tokens 256.
-        String err = validate(SERVED, 256, 32_000);
+        // 64_000 / 8 = 8000 minimum prompt tokens leaves 192 of the window, less than 256.
+        String err = validate(SERVED, 256, 64_000);
         assertTrue("must explain the combination: " + err, err.contains("max_tokens"));
+    }
+
+    /**
+     * Measured English averages ~6.5 characters per token, so a legitimate near-window prompt
+     * overestimates badly at 4 chars/token: 1_692_159 characters is 261_872 real tokens and
+     * must reach tokenization instead of being refused by the heuristic.
+     */
+    @Test
+    public void aFullContextEnglishPromptIsAccepted() {
+        assertNull(
+                OpenAIServer.validationError(SERVED, SERVED, 256, 1_692_159, 262_144));
     }
 
     @Test
@@ -123,6 +134,7 @@ public class OpenAIServerValidationTest {
     @Test
     public void theEstimateRatioIsTheDocumentedOne() {
         assertEquals(4, OpenAIServer.ESTIMATED_CHARS_PER_TOKEN);
+        assertEquals(8, OpenAIServer.MAX_CHARS_PER_TOKEN);
     }
 
     // ---- request logging -----------------------------------------------------------------

@@ -19,21 +19,27 @@ final class FlashNextExpertCache implements AutoCloseable {
     record Resource(int id,float scale) {}
     final TornadoDevice device;
     long budget;
-    long resident,uploads,evictions,readBytes;
+    long resident,uploads,evictions,readBytes,hits,misses,evictedBytes;
     final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
     boolean closed;
     FlashNextExpertCache(TornadoDevice device,long budget) {this.device=device;this.budget=budget;}
+    /** cuBLASLt 128x4 scale-tile offset for a (row, scale-column) pair; a bijection over the tile. */
+    static int swizzledOffset(int targetRow,int column,int scaleColumns) {
+        return (targetRow/128*(scaleColumns/4)+column/4)*512+(targetRow%32)*16+(targetRow%128/32)*4+column%4;
+    }
     final class Lease implements AutoCloseable {
         final Set<Key> keys=new HashSet<>();
         Resource get(ModelOptMatrix first,ModelOptMatrix second) throws IOException {
             var key=new Key(first,second);var entry=cache.get(key);
+            if(entry!=null) hits++;
             if(entry==null) {
+                misses++;
                 long size=size(key);if(size>budget) throw new IOException("Expert resource exceeds budget");
                 while(size>budget-resident) {
                     var candidate=cache.entrySet().iterator();Entry victim=null;
                     while(candidate.hasNext()) {var item=candidate.next();if(!keys.contains(item.getKey())) {victim=item.getValue();candidate.remove();break;}}
                     if(victim==null) throw new IOException("Expert cache cannot hold the pinned selected experts");
-                    victim.close();resident-=victim.bytes;evictions++;
+                    victim.close();resident-=victim.bytes;evictions++;evictedBytes+=victim.bytes;
                 }
                 entry=new Entry(key);cache.put(key,entry);resident+=entry.bytes;uploads++;
             }
@@ -66,9 +72,11 @@ final class FlashNextExpertCache implements AutoCloseable {
             tensor=matrix.blockScales();byte[] raw=new byte[Math.toIntExact(tensor.bytes())];
             try(var file=FileChannel.open(tensor.file(),StandardOpenOption.READ)) {SafeTensorIndex.readFully(file,java.nio.ByteBuffer.wrap(raw),tensor.offset());}
             int columns=matrix.columns()/16;
-            for(int row=0;row<matrix.rows();row++) for(int column=0;column<columns;column++) {
-                int targetRow=row+rowOffset;int offset=(targetRow/128*(columns/4)+column/4)*512+(targetRow%32)*16+(targetRow%128/32)*4+column%4;
-                scales.set(offset,raw[row*columns+column]);
+            var segment=scales.getSegment();
+            for(int row=0;row<matrix.rows();row++) {
+                int targetRow=row+rowOffset,base=row*columns;
+                for(int column=0;column<columns;column++)
+                    segment.set(ValueLayout.JAVA_BYTE,swizzledOffset(targetRow,column,columns),raw[base+column]);
             }
             readBytes+=matrix.weights().bytes()+matrix.blockScales().bytes();
         }

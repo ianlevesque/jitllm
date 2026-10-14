@@ -8,7 +8,7 @@ import tempfile
 
 from tokenizers import Tokenizer
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent
 
 
 def verify(model):
@@ -22,7 +22,7 @@ def verify(model):
     with tempfile.TemporaryDirectory(prefix="jitllm-metadata-") as temp:
         request = Path(temp) / "request.json"
         request.write_text(json.dumps({"texts": texts}))
-        process = subprocess.run(["java", "-Xmx1g", "-cp", str(ROOT / "target/classes"), "org.beehive.jitllm.integration.cli.FlashNextMetadataProbe", str(model), str(request)], capture_output=True, text=True)
+        process = subprocess.run(["java", "-Xmx1g", "-cp", str(ROOT / ".local/jitllm/target/classes"), "org.beehive.jitllm.integration.cli.FlashNextMetadataProbe", str(model), str(request)], capture_output=True, text=True)
         if process.returncode:
             raise RuntimeError(process.stderr)
         actual = json.loads(process.stdout)

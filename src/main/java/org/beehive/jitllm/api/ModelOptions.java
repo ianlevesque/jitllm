@@ -60,7 +60,7 @@ public final class ModelOptions {
                 || System.getProperty(StorageOptions.LEGACY_FP16_PROPERTY) != null;
     }
 
-    boolean hasExplicitStorageOptions() { return explicitStorageOptions; }
+    public boolean hasExplicitStorageOptions() { return explicitStorageOptions; }
 
     public static Builder builder() {
         return new Builder();

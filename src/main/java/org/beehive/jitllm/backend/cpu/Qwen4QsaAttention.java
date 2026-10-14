@@ -205,22 +205,54 @@ public final class Qwen4QsaAttention {
                 throw new IllegalArgumentException("Invalid frozen sparse capacity");
             var seen=new HashSet<Integer>();for(int token:frozen) if(token<0 || token>state.tokens() || !seen.add(token)) throw new IllegalArgumentException("Invalid frozen sparse token");
         }
+        var qp=Qwen4CpuLayers.project(q,hidden);var kp=Qwen4CpuLayers.project(k,hidden);var vp=Qwen4CpuLayers.project(v,hidden);
+        var ip=frozen==null ? Qwen4CpuLayers.project(index,hidden) : null;
+        if(trace!=null && state.device!=null) {trace.accept("q_projection",qp.clone());trace.accept("k_projection",kp.clone());trace.accept("v_projection",vp.clone());if(ip!=null) trace.accept("index_projection",ip.clone());}
+        return Qwen4CpuLayers.project(out,attend(qp,kp,vp,ip,ropePositions,state,prefill,freshPrefill,frozen,trace));
+    }
+    /**
+     * Distinct-row batched prefill forward: the q/k/v/index projections run as one
+     * distinct-row GEMM each and the output projection is batched the same way, while KV
+     * appends, indexer compression, selection and attention consume the rows strictly in
+     * order through {@link #attend}. Cached KV, compressed blocks, pending indexer state
+     * and the final selection therefore evolve exactly as sequential forwards would leave
+     * them. Frozen draft selections stay on the single-row path.
+     */
+    public float[][] forwardBatch(float[][] hiddens,int[][] ropePositions,State state,boolean prefill,boolean freshPrefill) throws IOException {
+        state.requireOpen();
+        if(hiddens.length==0 || hiddens.length!=ropePositions.length || state.owner!=this
+                || state.tokens()+hiddens.length>config.contextLength() || freshPrefill && !prefill)
+            throw new IllegalArgumentException("Invalid batched QSA input/state/context");
+        if(state.device==null && state.indexedThrough!=state.tokens()) throw new IllegalArgumentException("Restore indexed prefix before draft extend");
+        for(int row=0; row<hiddens.length; row++) {
+            if(hiddens[row].length!=config.dim() || ropePositions[row].length!=3) throw new IllegalArgumentException("Invalid QSA input/state/context");
+            for(int position:ropePositions[row]) if(position<0) throw new IllegalArgumentException("Negative RoPE coordinate");
+        }
+        int rows=hiddens.length;
+        float[] flat=Qwen4CpuLayers.flatten(hiddens,config.dim());
+        float[][] qp=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(q,flat,rows),rows,q.rows());
+        float[][] kp=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(k,flat,rows),rows,k.rows());
+        float[][] vp=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(v,flat,rows),rows,v.rows());
+        float[][] ip=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(index,flat,rows),rows,index.rows());
+        float[][] gated=new float[rows][];
+        for(int row=0; row<rows; row++) gated[row]=attend(qp[row],kp[row],vp[row],ip[row],ropePositions[row],state,prefill,freshPrefill,null,null);
+        return Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(out,Qwen4CpuLayers.flatten(gated,q.rows()/2),rows),rows,out.rows());
+    }
+    /** One projected row through KV append, indexing, selection and gated attention. */
+    private float[] attend(float[] qp,float[] kp,float[] vp,float[] ip,int[] ropePositions,State state,boolean prefill,boolean freshPrefill,int[] frozen,java.util.function.BiConsumer<String,float[]> trace) throws IOException {
         if(state.device!=null) {
-            var qp=Qwen4CpuLayers.project(q,hidden);var kp=Qwen4CpuLayers.project(k,hidden);var vp=Qwen4CpuLayers.project(v,hidden);
-            var ip=frozen==null ? Qwen4CpuLayers.project(index,hidden) : null;
-            if(trace!=null) {trace.accept("q_projection",qp.clone());trace.accept("k_projection",kp.clone());trace.accept("v_projection",vp.clone());if(ip!=null) trace.accept("index_projection",ip.clone());}
             var gated=frozen==null ? state.device.forward(qp,kp,vp,ip,ropePositions,prefill,freshPrefill,state.prefillBlockSize) : state.device.forwardFrozen(qp,kp,vp,ropePositions,frozen);
-            if(trace!=null) {trace.accept("gated_heads",gated.clone());for(var stage:state.device.intermediates().entrySet()) trace.accept(stage.getKey(),stage.getValue());}return Qwen4CpuLayers.project(out,gated);
+            if(trace!=null) {trace.accept("gated_heads",gated.clone());for(var stage:state.device.intermediates().entrySet()) trace.accept(stage.getKey(),stage.getValue());}return gated;
         }
         int head=config.headSize(),heads=config.numberOfHeads();
-        float[] projected=Qwen4CpuLayers.project(q,hidden),query=new float[heads*head],gate=new float[heads*head];
+        float[] projected=qp,query=new float[heads*head],gate=new float[heads*head];
         for(int h=0;h<heads;h++) {
             System.arraycopy(projected,h*2*head,query,h*head,head);
             System.arraycopy(projected,h*2*head+head,gate,h*head,head);
         }
         query=normalize(query,qNorm); rope(query,head,ropePositions);
-        float[] keys=normalize(Qwen4CpuLayers.project(k,hidden),kNorm); rope(keys,head,ropePositions);
-        float[] values=Qwen4CpuLayers.project(v,hidden);
+        float[] keys=normalize(kp,kNorm); rope(keys,head,ropePositions);
+        float[] values=vp;
         if(freshPrefill) {
             if(state.freshKeys.size()!=state.tokens()) throw new IllegalArgumentException("Fresh prefill cannot follow cached-prefix attention");
             state.freshKeys.add(keys);state.freshValues.add(values);
@@ -240,7 +272,7 @@ public final class Qwen4QsaAttention {
         float[] indexQuery=null;
         int indexWidth=config.indexerHeadDim(),queryWidth=config.indexerHeads()*indexWidth;
         if(frozen==null) {
-        float[] indexProjection=Qwen4CpuLayers.project(index,hidden);
+        float[] indexProjection=ip;
         indexQuery=normalize(Arrays.copyOf(indexProjection,queryWidth),indexQNorm); rope(indexQuery,indexWidth,ropePositions);
         int slot=(state.tokens()-1)%config.indexerCompressRatio();
         System.arraycopy(indexProjection,queryWidth,state.pending,slot*indexWidth,indexWidth);
@@ -302,7 +334,7 @@ public final class Qwen4QsaAttention {
             // SGLang's CUDA fused_sigmoid_mul keeps the sigmoid in FP32.
             attention[i]=bf(bf(attention[i])*(fusedPrecision ? weight : bf(weight)));
         }
-        return Qwen4CpuLayers.project(out,attention);
+        return attention;
     }
     private record Block(int index,float score) {}
     public static int[] select(float[] query,List<float[]> compressed,int visible,int heads,int width,int budget,int ratio) {

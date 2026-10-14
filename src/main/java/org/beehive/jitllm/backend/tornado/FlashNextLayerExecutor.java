@@ -2,12 +2,15 @@ package org.beehive.jitllm.backend.tornado;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.nio.channels.FileChannel;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import org.beehive.jitllm.inference.op.FlashNextLayerExecutor.GroupedShape;
 import org.beehive.jitllm.inference.op.FlashNextLayerExecutor.PleShape;
 import org.beehive.jitllm.backend.tornado.kernels.FlashNextLayerKernels;
 import org.beehive.jitllm.backend.tornado.kernels.FlashNextDeltaNetKernels;
 import org.beehive.jitllm.format.safetensors.FloatFormats;
+import org.beehive.jitllm.format.safetensors.ModelOptMatrix;
 import uk.ac.manchester.tornado.api.*;
 import uk.ac.manchester.tornado.api.common.TornadoDevice;
 import uk.ac.manchester.tornado.api.enums.*;
@@ -20,13 +23,13 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
 public final class FlashNextLayerExecutor implements org.beehive.jitllm.inference.op.FlashNextLayerExecutor,AutoCloseable {
     public record Statistics(long residentBytes,int hyperConnections,int pleSessions,int liveSnapshots,
                              long hyperMixes,long hyperCombines,long pleForwards,long checkpoints,long restores,
-                             long resets,long kernelNanos,long stateHostDownloadBytes) {}
+                             long resets,long kernelNanos,long stateHostDownloadBytes,long hostUploadBytes,long hostDownloadBytes) {}
     private final TornadoDevice device;
     private final int capacity;
     private final boolean nativeGroupedNormalization;
     private final long budget;
     private final Set<Owned> resources=Collections.newSetFromMap(new IdentityHashMap<>());
-    private long resident,graphId,hyperMixes,hyperCombines,pleForwards,checkpoints,restores,resets,kernelNanos;
+    private long resident,graphId,hyperMixes,hyperCombines,pleForwards,checkpoints,restores,resets,kernelNanos,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
 
     public FlashNextLayerExecutor(int deviceIndex,int checkpointCapacity,long budget) {
@@ -44,7 +47,7 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
             if(resource instanceof Hyper) hyper++;
             if(resource instanceof Ple session) {ple++;for(boolean used:session.occupied) if(used) active++;}
         }
-        return new Statistics(resident,hyper,ple,active,hyperMixes,hyperCombines,pleForwards,checkpoints,restores,resets,kernelNanos,0);
+        return new Statistics(resident,hyper,ple,active,hyperMixes,hyperCombines,pleForwards,checkpoints,restores,resets,kernelNanos,0,hostUploadBytes,hostDownloadBytes);
     }
     private void requireOpen() {if(closed) throw new IllegalStateException("GPU layer executor is closed");}
     private <T extends Owned> T register(T resource) {resources.add(resource);resident+=resource.bytes;return resource;}
@@ -63,6 +66,10 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
             return FloatArray.fromSegmentShallow(arena.allocate(length,32));
         }
         FloatArray array(float[] values) {var buffer=array(values.length);put(buffer,values);return buffer;}
+        BFloat16Array bfloats(int size) {
+            long length=Math.addExact(TornadoNativeArray.ARRAY_HEADER,Math.multiplyExact(2L,size));reserve(length);
+            return BFloat16Array.fromSegmentShallow(arena.allocate(length,32));
+        }
         IntArray control(int size) {
             long length=TornadoNativeArray.ARRAY_HEADER+4L*size;reserve(length);
             return IntArray.fromSegmentShallow(arena.allocate(length,32));
@@ -102,25 +109,49 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
     @Override public synchronized HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization) {
         requireOpen();
         if(lowrank<=0 || normalization.length!=shape.width()) throw new IllegalArgumentException("Wrong GPU HC shape/weights");
-        return register(new Hyper(shape,lowrank,normalization,null));
+        try {return register(new Hyper(shape,lowrank,normalization,null,null,null));}
+        catch(IOException error) {throw new java.io.UncheckedIOException(error);}
     }
     @Override public synchronized HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights) {
         requireOpen();
         if(lowrank<=0 || normalization.length!=shape.width() || (injectionWeights!=null && injectionWeights.length!=Math.multiplyExact(shape.branches(),shape.width())))
             throw new IllegalArgumentException("Wrong GPU HC shape/weights");
-        return register(new Hyper(shape,lowrank,normalization,injectionWeights));
+        try {return register(new Hyper(shape,lowrank,normalization,injectionWeights,null,null));}
+        catch(IOException error) {throw new java.io.UncheckedIOException(error);}
+    }
+    @Override public synchronized HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights,ModelOptMatrix down,ModelOptMatrix up) throws IOException {
+        requireOpen();
+        if(lowrank<=0 || normalization.length!=shape.width() || (injectionWeights!=null && injectionWeights.length!=Math.multiplyExact(shape.branches(),shape.width())))
+            throw new IllegalArgumentException("Wrong GPU HC shape/weights");
+        boolean nativeMix=nativeGroupedNormalization && shape.branches()==4 && shape.dimension()==2560 && lowrank==320
+                && !Boolean.getBoolean("jitllm.qwen4.legacyHcMix");
+        return register(new Hyper(shape,lowrank,normalization,injectionWeights,nativeMix ? down : null,nativeMix ? up : null));
     }
     private final class Hyper extends Owned implements HyperConnection {
         final FloatArray normInput,normOutput,low,mixInput,gates,mixed,block,residual,injection,combined;
         final IntArray lowFused,mixFused;
-        final TornadoExecutionPlan normalizePlan,lowPlan,mixPlan,combinePlan,nativeCombinePlan;
-        Hyper(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights) {
+        final TornadoExecutionPlan normalizePlan,lowPlan,mixPlan,combinePlan,nativeCombinePlan,nativeMixPlan;
+        final FloatArray nativeRaw;
+        Hyper(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights,ModelOptMatrix down,ModelOptMatrix up) throws IOException {
             try {
                 normInput=array(shape.width());normOutput=array(shape.width());var weights=array(normalization);
                 low=array(lowrank);lowFused=control(1);
                 mixInput=array(shape.width());gates=array(shape.width());mixed=array(shape.dimension());mixFused=control(1);
                 block=array(shape.dimension());residual=array(shape.width());injection=array(shape.branches());combined=array(shape.width());
                 String id="flashnextHyper"+(graphId++);
+                if(down!=null && up!=null) {
+                    if(!down.dtype().equals("BF16") || !up.dtype().equals("BF16") || down.rows()!=320 || down.columns()!=10240
+                            || up.rows()!=10240 || up.columns()!=320) throw new IOException("Native HC mix requires the qualified BF16 matrices");
+                    var packed=bfloats(shape.width());var dw=matrix(down);var uw=matrix(up);
+                    nativeRaw=array(16*lowrank);var out=bfloats(shape.dimension());var counters=control(3);
+                    nativeMixPlan=plan(new TaskGraph(id+"NativeMix")
+                            .transferToDevice(DataTransferMode.FIRST_EXECUTION,packed,dw,uw,nativeRaw,out,counters)
+                            .transferToDevice(DataTransferMode.EVERY_EXECUTION,mixInput)
+                            .task("pack",org.beehive.jitllm.backend.tornado.kernels.FlashNextWeightKernels::bf16GemmInput,mixInput,packed,shape.width(),1)
+                            .libraryTask("mix",FlashNextHcMixLibrary::mix,packed,dw,uw,nativeRaw,out,counters)
+                            .task("read",org.beehive.jitllm.backend.tornado.kernels.FlashNextWeightKernels::bf16GemmOutput,out,mixed)
+                            .transferToHost(DataTransferMode.UNDER_DEMAND,mixed,nativeRaw));
+                } else {nativeMixPlan=null;nativeRaw=null;}
                 var normGraph=new TaskGraph(id+"Norm").transferToDevice(DataTransferMode.FIRST_EXECUTION,weights)
                         .transferToDevice(DataTransferMode.EVERY_EXECUTION,normInput);
                 if(nativeGroupedNormalization && shape.dimension()%512==0 && shape.dimension()<=16384) {
@@ -147,27 +178,46 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
                             .task("boundary",org.beehive.jitllm.backend.tornado.kernels.FlashNextMoeKernels::bf16Boundary,combined)
                             .transferToHost(DataTransferMode.UNDER_DEMAND,combined));
                 } else nativeCombinePlan=null;
-            } catch(RuntimeException|Error failure) {failed(failure);throw failure;}
+            } catch(IOException|RuntimeException|Error failure) {failed(failure);throw failure;}
+        }
+        private BFloat16Array matrix(ModelOptMatrix matrix) throws IOException {
+            var result=bfloats(Math.multiplyExact(matrix.rows(),matrix.columns()));
+            try(var temporary=Arena.ofConfined();var file=FileChannel.open(matrix.weights().file(),StandardOpenOption.READ)) {
+                result.getSegment().copyFrom(file.map(FileChannel.MapMode.READ_ONLY,matrix.weights().offset(),matrix.weights().bytes(),temporary));
+            }
+            return result;
+        }
+        @Override public boolean projectsMix() {return nativeMixPlan!=null;}
+        @Override public float[] mixNormalized(float[] normalized,java.util.function.BiConsumer<String,float[]> trace) throws IOException {
+            synchronized(FlashNextLayerExecutor.this) {
+                check();if(nativeMixPlan==null) throw new UnsupportedOperationException("Native HC mix is unavailable");
+                put(mixInput,normalized);var result=run(nativeMixPlan);result.transferToHost(mixed);
+                hostUploadBytes+=4L*mixInput.getSize();hostDownloadBytes+=4L*mixed.getSize();
+                if(trace!=null) {result.transferToHost(nativeRaw);hostDownloadBytes+=4L*nativeRaw.getSize();float[] raw=new float[320];for(int i=0;i<raw.length;i++) raw[i]=nativeRaw.get(i);trace.accept("down_raw",raw);}
+                hyperMixes++;return read(mixed);
+            }
         }
         @Override public float[] normalize(float[] hidden) throws IOException {
-            synchronized(FlashNextLayerExecutor.this) {check();put(normInput,hidden);run(normalizePlan).transferToHost(normOutput);return read(normOutput);}
+            synchronized(FlashNextLayerExecutor.this) {check();put(normInput,hidden);run(normalizePlan).transferToHost(normOutput);
+                hostUploadBytes+=4L*normInput.getSize();hostDownloadBytes+=4L*normOutput.getSize();return read(normOutput);}
         }
         @Override public float[] activateLow(float[] projected,boolean fused) throws IOException {
-            synchronized(FlashNextLayerExecutor.this) {check();put(low,projected);lowFused.set(0,fused ? 1 : 0);run(lowPlan).transferToHost(low);return read(low);}
+            synchronized(FlashNextLayerExecutor.this) {check();put(low,projected);lowFused.set(0,fused ? 1 : 0);run(lowPlan).transferToHost(low);
+                hostUploadBytes+=4L*low.getSize()+4;hostDownloadBytes+=4L*low.getSize();return read(low);}
         }
         @Override public float[] mix(float[] normalized,float[] projectedGates,boolean fused) throws IOException {
             synchronized(FlashNextLayerExecutor.this) {check();put(mixInput,normalized);put(gates,projectedGates);mixFused.set(0,fused ? 1 : 0);
-                run(mixPlan).transferToHost(mixed);hyperMixes++;return read(mixed);}
+                run(mixPlan).transferToHost(mixed);hostUploadBytes+=4L*(mixInput.getSize()+gates.getSize())+4;hostDownloadBytes+=4L*mixed.getSize();hyperMixes++;return read(mixed);}
         }
         @Override public float[] combine(float[] blockValues,float[] residualValues,float[] projectedInjection) throws IOException {
             synchronized(FlashNextLayerExecutor.this) {check();put(block,blockValues);put(residual,residualValues);put(injection,projectedInjection);
-                run(combinePlan).transferToHost(combined);hyperCombines++;return read(combined);}
+                run(combinePlan).transferToHost(combined);hostUploadBytes+=4L*(block.getSize()+residual.getSize()+injection.getSize());hostDownloadBytes+=4L*combined.getSize();hyperCombines++;return read(combined);}
         }
         @Override public boolean projectsInjection() {return nativeCombinePlan!=null;}
         @Override public float[] combineNormalized(float[] blockValues,float[] residualValues,float[] normalized) throws IOException {
             synchronized(FlashNextLayerExecutor.this) {check();if(nativeCombinePlan==null) throw new UnsupportedOperationException("Native HC injection is unavailable");
                 put(block,blockValues);put(residual,residualValues);put(mixInput,normalized);
-                run(nativeCombinePlan).transferToHost(combined);hyperCombines++;return read(combined);}
+                run(nativeCombinePlan).transferToHost(combined);hostUploadBytes+=4L*(block.getSize()+residual.getSize()+mixInput.getSize());hostDownloadBytes+=4L*combined.getSize();hyperCombines++;return read(combined);}
         }
     }
 
@@ -202,12 +252,13 @@ public final class FlashNextLayerExecutor implements org.beehive.jitllm.inferenc
                 execution=plan(graph);
             } catch(RuntimeException|Error failure) {failed(failure);throw failure;}
         }
-        TornadoExecutionResult execute(int action,int slot) throws IOException {check();control.set(0,action);control.set(1,slot);return run(execution);}
+        TornadoExecutionResult execute(int action,int slot) throws IOException {check();control.set(0,action);control.set(1,slot);
+            var result=run(execution);hostUploadBytes+=16+4L*(hidden.getSize()+key.getSize()+value.getSize());return result;}
         @Override public float[] forward(float[] residual,float[] projectedKey,float[] projectedValue,boolean fusedDecode,boolean addResidual) throws IOException {
             synchronized(FlashNextLayerExecutor.this) {
                 check();put(hidden,residual);put(key,projectedKey);put(value,projectedValue);
                 control.set(2,addResidual ? 1 : 0);control.set(3,fusedDecode ? 1 : 0);
-                execute(0,0).transferToHost(output);pleForwards++;return read(output);
+                execute(0,0).transferToHost(output);hostDownloadBytes+=4L*output.getSize();pleForwards++;return read(output);
             }
         }
         private final class Saved implements Snapshot {

@@ -26,6 +26,30 @@ public final class PagedTensorReader implements AutoCloseable {
         this.capacity = (int) (budgetBytes / pageBytes);
     }
 
+    public int pageBytes() { return pageBytes; }
+    public long budgetBytes() { return (long) capacity * pageBytes; }
+
+    /** Return the resident page, filling it on a miss. Caller must hold the monitor. */
+    private byte[] page(Page key) throws IOException {
+        byte[] page = pages.get(key);
+        if (page != null) { hits++; return page; }
+        misses++;
+        FileChannel channel = channels.get(key.file());
+        if (channel == null) {
+            channel = FileChannel.open(key.file(), StandardOpenOption.READ);
+            channels.put(key.file(), channel);
+        }
+        long offset = key.index() * pageBytes;
+        int count = (int) Math.min(pageBytes, channel.size() - offset);
+        // Evict before allocating: the cache never temporarily holds capacity + 1 pages.
+        if (pages.size() == capacity) pages.remove(pages.keySet().iterator().next());
+        page = new byte[count];
+        SafeTensorIndex.readFully(channel, ByteBuffer.wrap(page), offset);
+        bytesRead += count;
+        pages.put(key, page);
+        return page;
+    }
+
     public synchronized void read(SafeTensorIndex.Tensor tensor, long relativeOffset,
                                   byte[] destination, int start, int length) throws IOException {
         if (closed) throw new IOException("Reader is closed");
@@ -34,24 +58,7 @@ public final class PagedTensorReader implements AutoCloseable {
             throw new IndexOutOfBoundsException("Read exceeds tensor: " + tensor.name());
         long absolute = tensor.offset() + relativeOffset;
         while (length > 0) {
-            Page key = new Page(tensor.file(), absolute / pageBytes);
-            byte[] page = pages.get(key);
-            if (page == null) {
-                misses++;
-                FileChannel channel = channels.get(key.file());
-                if (channel == null) {
-                    channel = FileChannel.open(key.file(), StandardOpenOption.READ);
-                    channels.put(key.file(), channel);
-                }
-                long offset = key.index() * pageBytes;
-                int count = (int) Math.min(pageBytes, channel.size() - offset);
-                // Evict before allocating: the cache never temporarily holds capacity + 1 pages.
-                if (pages.size() == capacity) pages.remove(pages.keySet().iterator().next());
-                page = new byte[count];
-                SafeTensorIndex.readFully(channel, ByteBuffer.wrap(page), offset);
-                bytesRead += count;
-                pages.put(key, page);
-            } else hits++;
+            byte[] page = page(new Page(tensor.file(), absolute / pageBytes));
             int position = (int) (absolute % pageBytes);
             int count = Math.min(length, page.length - position);
             if (count <= 0) throw new IOException("Tensor page extends beyond file");
@@ -59,6 +66,23 @@ public final class PagedTensorReader implements AutoCloseable {
             absolute += count;
             start += count;
             length -= count;
+        }
+    }
+
+    /** Warm every page covering the range, in ascending offset order, without copying bytes out. */
+    public synchronized void prefetch(SafeTensorIndex.Tensor tensor, long relativeOffset, long length) throws IOException {
+        if (closed) throw new IOException("Reader is closed");
+        if (relativeOffset < 0 || length < 0 || length > tensor.bytes() || relativeOffset > tensor.bytes() - length)
+            throw new IndexOutOfBoundsException("Prefetch exceeds tensor: " + tensor.name());
+        long absolute = tensor.offset() + relativeOffset;
+        long remaining = length;
+        while (remaining > 0) {
+            byte[] page = page(new Page(tensor.file(), absolute / pageBytes));
+            int position = (int) (absolute % pageBytes);
+            long count = Math.min(remaining, page.length - position);
+            if (count <= 0) throw new IOException("Tensor page extends beyond file");
+            absolute += count;
+            remaining -= count;
         }
     }
 

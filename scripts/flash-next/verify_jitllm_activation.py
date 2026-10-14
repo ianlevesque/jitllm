@@ -8,7 +8,7 @@ import tempfile
 import torch
 from flashinfer.quantization import fp4_quantize
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parent
 
 
 def verify():
@@ -26,7 +26,7 @@ def verify():
         with tempfile.TemporaryDirectory(prefix="jitllm-activation-") as temp:
             request=Path(temp)/"request.json"
             request.write_text(json.dumps({"activations":rows.float().tolist(),"global_scale":scale}))
-            result=subprocess.run(["java","-Xmx1g","-cp",str(ROOT/"target/classes"),
+            result=subprocess.run(["java","-Xmx1g","-cp",str(ROOT/".local/jitllm/target/classes"),
                                    "org.beehive.jitllm.integration.cli.FlashNextCheckpointProbe","unused",str(request)],capture_output=True,text=True)
             if result.returncode: raise RuntimeError(result.stderr)
             actual=json.loads(result.stdout)["outputs"]

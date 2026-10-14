@@ -66,7 +66,15 @@ public final class Qwen4ConfigurationTest {
     @Test public void requestedContextKeepsNativeCeiling() throws Exception {
         var config=load(CONFIG,8);
         assertEquals(8,config.contextLength()); assertEquals(16,config.contextLengthModel());
-        assertThrows(IllegalArgumentException.class,()->load(CONFIG,17));
+        var refusal=assertThrows(java.io.IOException.class,()->load(CONFIG,17));
+        assertTrue(refusal.getMessage(),refusal.getMessage().contains("17") && refusal.getMessage().contains("16"));
+    }
+    @Test public void zeroAndNegativeRequestsSelectTheNativeContextInFull() throws Exception {
+        // 0 is ModelOptions' "the model's own"; a negative value is the loader's. Neither may
+        // reach the record as a literal length.
+        assertEquals(16,load(CONFIG,0).contextLength());
+        assertEquals(16,load(CONFIG,-1).contextLength());
+        assertEquals(16,load(CONFIG,16).contextLength());
     }
     @Test public void attentionDimensionsAreExplicit() throws Exception {
         var config=load(CONFIG,-1);

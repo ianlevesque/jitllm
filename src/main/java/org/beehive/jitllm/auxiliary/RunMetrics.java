@@ -130,6 +130,17 @@ public final class RunMetrics {
     }
 
     /**
+     * Restores the full prompt after a caller pre-ingested part of it before the timed loop ran:
+     * sets the prompt size and adds the pre-ingest time to the prompt-eval and total durations,
+     * preserving the decode count and duration the loop recorded.
+     */
+    public static void addPrefillIngest(int promptCount, long ingestNs) {
+        INSTANCE.promptEvalCount = promptCount;
+        INSTANCE.promptEvalDurationNs += ingestNs;
+        INSTANCE.totalDurationNs += ingestNs;
+    }
+
+    /**
      * Signals that prefill and decode are distinct timed phases. Called by {@code
      * TokenGenerationLoop}'s prefill paths before returning.
      */

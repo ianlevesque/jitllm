@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from safetensors import safe_open
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent
 PREFIX = "model.language_model.layers.0.linear_attn."
 
 
@@ -63,8 +63,8 @@ def verify(model,gpu_recurrence=False,device=1,gpu_projections=False):
     with tempfile.TemporaryDirectory(prefix="jitllm-deltanet-") as temp:
         request = Path(temp)/"request.json"
         request.write_text(json.dumps({"mode":"gdn","inputs":[x.float().tolist() for x in inputs],"device":device,"gpu_projections":gpu_projections}))
-        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"recurrent-probe",str(model),str(request)] if gpu_recurrence else [
-                "java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        command=[sys.executable,str(ROOT/"jitllm_runtime.py"),"recurrent-probe",str(model),str(request)] if gpu_recurrence else [
+                "java","-Xmx1g","-cp",str(ROOT/".local/jitllm/target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
         result = subprocess.run(command,capture_output=True,text=True)
         if result.returncode:
             raise RuntimeError(result.stderr)

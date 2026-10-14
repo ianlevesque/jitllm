@@ -12,7 +12,7 @@ from flashinfer.fused_moe import cutlass_fused_moe
 from safetensors import safe_open
 from sglang.kernels.ops.moe.moe_fused_gate import moe_fused_gate
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parent
 PREFIX="model.language_model.layers.0.mlp."
 
 
@@ -66,7 +66,7 @@ def verify(model,gpu=False,native=False,device=1,moe=False):
     with tempfile.TemporaryDirectory(prefix="jitllm-moe-") as temp:
         request=Path(temp)/"request.json"
         request.write_text(json.dumps({"mode":"moe","inputs":[x.float().tolist() for x in inputs],"gpu_nvfp4":native,"device":device,"gpu_moe":moe}))
-        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"moe-probe",str(model),str(request)] if gpu else ["java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        command=[sys.executable,str(ROOT/"jitllm_runtime.py"),"moe-probe",str(model),str(request)] if gpu else ["java","-Xmx1g","-cp",str(ROOT/".local/jitllm/target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
         result=subprocess.run(command,capture_output=True,text=True)
         if result.returncode:raise RuntimeError(result.stderr)
         actual=json.loads(next(line for line in result.stdout.splitlines() if line.startswith('{"')))

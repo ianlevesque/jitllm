@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.Map;
 import org.beehive.jitllm.format.ModelSource;
+import org.beehive.jitllm.model.loader.Qwen4PleTable;
 import org.beehive.jitllm.model.provider.ModelProviders;
 import org.beehive.jitllm.runtime.backend.BackendId;
 import org.junit.Test;
@@ -21,6 +22,30 @@ public class Qwen4ModelProviderTest {
         var provider = new Qwen4ModelProvider();
         assertFalse(provider.supports(ModelSource.ofMetadata(Path.of("other"), Map.of("model_type", "qwen3_5"))));
         assertFalse(provider.supports(ModelSource.ofMetadata(Path.of("other"), Map.of("model_type", "qwen4_exp"))));
+    }
+    @Test public void plePageCacheBudgetIsResolvedAndForwarded() throws Exception {
+        String previous = System.getProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY);
+        Path directory = Files.createTempDirectory("qwen4-provider-ple-");
+        try {
+            Files.writeString(directory.resolve("config.json"), "{\"model_type\":\"qwen4_exp_text\"}");
+            Files.writeString(directory.resolve("model.safetensors"), "unread payload");
+            var source = ModelSource.ofFile(directory);
+            System.clearProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY);
+            assertThrows(UnsupportedOperationException.class,
+                    () -> new Qwen4ModelProvider().load(source, BackendId.METAL, -1));
+            assertEquals(Long.toString(Qwen4PleTable.DEFAULT_PLE_PAGE_CACHE_BYTES),
+                    System.getProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY));
+            System.setProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY, "0");
+            assertThrows(UnsupportedOperationException.class,
+                    () -> new Qwen4ModelProvider().load(source, BackendId.METAL, -1));
+            assertEquals("0", System.getProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY));
+        } finally {
+            if (previous == null) System.clearProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY);
+            else System.setProperty(Qwen4PleTable.PLE_PAGE_CACHE_PROPERTY, previous);
+            Files.deleteIfExists(directory.resolve("config.json"));
+            Files.deleteIfExists(directory.resolve("model.safetensors"));
+            Files.delete(directory);
+        }
     }
     @Test public void unsupportedAcceleratorIsRefusedBeforeAnyTensorRead() throws Exception {
         Path directory = Files.createTempDirectory("qwen4-provider-");

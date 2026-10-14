@@ -70,11 +70,20 @@ public class FacadeSurfaceTest {
                         "maxNewTokens",
                         "temperature",
                         "topP",
+                        "topK",
+                        "minP",
+                        "frequencyPenalty",
+                        "presencePenalty",
+                        "repetitionPenalty",
                         "seed",
                         "stopSequences",
                         "onToken",
                         "onEvent",
                         "cancellation",
+                        "thinkingMode",
+                        "reasoningEffort",
+                        "logprobs",
+                        "topLogprobs",
                         "build"),
                 builderMethods);
     }
@@ -132,7 +141,7 @@ public class FacadeSurfaceTest {
 
     /**
      * What a model can do is asked of its {@link ModelInfo}, before a request is sent — not learnt
-     * from the exception the request throws. Three flags, pinned exactly: a fourth capability is a
+     * from the exception the request throws. Four flags, pinned exactly: a fifth capability is a
      * decision, and no format, template or token set rides along with them.
      */
     @Test
@@ -141,7 +150,8 @@ public class FacadeSurfaceTest {
                 ModelCapabilities.class, ModelInfo.class.getMethod("capabilities").getReturnType());
         assertTrue(ModelCapabilities.class.isRecord());
         assertEquals(
-                java.util.List.of("toolCalling", "thinkingControl", "reasoningEffortControl"),
+                java.util.List.of(
+                        "toolCalling", "thinkingControl", "reasoningEffortControl", "imageInput"),
                 Arrays.stream(ModelCapabilities.class.getRecordComponents())
                         .map(java.lang.reflect.RecordComponent::getName)
                         .toList());
@@ -150,6 +160,7 @@ public class FacadeSurfaceTest {
                         "toolCalling",
                         "thinkingControl",
                         "reasoningEffortControl",
+                        "imageInput",
                         "equals",
                         "hashCode",
                         "toString");

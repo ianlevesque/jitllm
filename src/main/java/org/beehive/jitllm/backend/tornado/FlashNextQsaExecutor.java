@@ -18,13 +18,13 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
  */
 public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
     public record Statistics(long reservedBytes,long materializedPageBytes,int sessions,int pages,int liveSnapshots,
-                             long forwards,long restores,long kernelNanos,long kvHostDownloadBytes,long indexHostDownloadBytes) {}
+                             long forwards,long restores,long kernelNanos,long kvHostDownloadBytes,long indexHostDownloadBytes,long hostUploadBytes,long hostDownloadBytes) {}
     private final TornadoDevice device;
     private final long budget;
     private final int checkpointCapacity;
     private final boolean nativeDecode;
     private final Set<DeviceSession> sessions=Collections.newSetFromMap(new IdentityHashMap<>());
-    private long reserved,graphId,forwards,restores,kernelNanos,indexDownloads;
+    private long reserved,graphId,forwards,restores,kernelNanos,indexDownloads,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     public FlashNextQsaExecutor(int deviceIndex,int checkpointCapacity,long budget) {
         this(deviceIndex,checkpointCapacity,budget,false);
@@ -40,7 +40,7 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
             snapshots+=session.snapshots.size();
             for(var page:session.pages) if(page.touched) {pages++;materialized+=page.bytes;}
         }
-        return new Statistics(reserved,materialized,sessions.size(),pages,snapshots,forwards,restores,kernelNanos,0,indexDownloads);
+        return new Statistics(reserved,materialized,sessions.size(),pages,snapshots,forwards,restores,kernelNanos,0,indexDownloads,hostUploadBytes,hostDownloadBytes);
     }
     @Override public synchronized Session newSession(Shape shape,float[] qNorm,float[] kNorm,float[] iqNorm,float[] ikNorm,int[] axes,float[] frequencies,boolean fp8,boolean fused) {
         if(closed) throw new IllegalStateException("QSA executor is closed");
@@ -214,22 +214,23 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
                 int visible=tokens+1,count=frozen==null ? Math.min(visible/shape.ratio(),shape.budget()/shape.ratio())*shape.ratio()+visible%shape.ratio() : frozen.length;
                 control.set(0,visible);control.set(1,fresh ? 1 : 0);control.set(2,count);control.set(3,prefill ? 1 : 0);control.set(4,blockSize);
                 control.set(5,frozen==null ? 0 : 1);
+                hostUploadBytes+=4L*(projected.getSize()+keyInput.getSize()+valueInput.getSize()+indexInput.getSize()+pending.getSize())+48;
                 run(0);var current=pages[tokens/shape.pageTokens()];
                 current.appendControl.set(0,tokens-current.start);current.appendControl.set(1,fresh ? 1 : 0);current.appendControl.set(2,frozen==null && visible%shape.ratio()==0 ? 1 : 0);
-                run(current.appendGraph);current.touched=true;
+                hostUploadBytes+=12;run(current.appendGraph);current.touched=true;
                 int blocks=visible/shape.ratio();
                 if(frozen==null) {for(var page:pages) {
                     int visibleBlocks=Math.min(512,blocks-page.start/shape.ratio());if(visibleBlocks<=0) break;
-                    page.scoreControl.set(0,visibleBlocks);page.scoreControl.set(1,page.start/shape.ratio());run(page.scoreGraph);
+                    page.scoreControl.set(0,visibleBlocks);page.scoreControl.set(1,page.start/shape.ratio());hostUploadBytes+=8;run(page.scoreGraph);
                 }
                 run(selectionGraph);
                 } else {
                     for(int i=0;i<frozenSelection.getSize();i++) frozenSelection.set(i,i<frozen.length ? frozen[i] : -1);
-                    run(frozenGraph);
+                    hostUploadBytes+=4L*frozenSelection.getSize();run(frozenGraph);
                 }
                 for(int page=0;page<=tokens/shape.pageTokens();page++) run(pages[page].gatherGraph);
-                run(attentionGraph);
-                if(frozen==null) {run(diagnosticGraph);lastSelection=new int[count];for(int i=0;i<count;i++) lastSelection[i]=diagnostic.get(i);indexDownloads+=4L*diagnostic.getSize();}
+                run(attentionGraph);hostDownloadBytes+=4L*output.getSize();
+                if(frozen==null) {run(diagnosticGraph);lastSelection=new int[count];for(int i=0;i<count;i++) lastSelection[i]=diagnostic.get(i);indexDownloads+=4L*diagnostic.getSize();hostDownloadBytes+=4L*diagnostic.getSize();}
                 else lastSelection=frozen.clone();
                 float[] result=new float[output.getSize()];for(int i=0;i<result.length;i++) result[i]=output.get(i);
                 tokens=visible;if(frozen==null) indexedThrough=tokens;freshActive=fresh;forwards++;return result;
@@ -238,6 +239,7 @@ public final class FlashNextQsaExecutor implements QsaExecutor,AutoCloseable {
         @Override public Map<String,float[]> intermediates() throws IOException {
             synchronized(FlashNextQsaExecutor.this) {
                 requireOpen();if(tokens==0) throw new IllegalStateException("No QSA forward to trace");run(traceGraph);
+                for(var traced:traceArrays.values()) hostDownloadBytes+=4L*traced.getSize();
                 var result=new LinkedHashMap<String,float[]>();int count=lastSelection.length;
                 for(var pair:traceArrays.entrySet()) {
                     boolean compact=pair.getKey().equals("scores") || pair.getKey().equals("probabilities");

@@ -18,16 +18,16 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
  * distinct input rows are encoded on CUDA. Native K=128 partials stay on the device.
  */
 public final class FlashNextFp8MatrixExecutor implements AutoCloseable {
-    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices) {}
+    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,int matrices,long cacheHits,long cacheMisses,long hostUploadBytes,long hostDownloadBytes) {}
     private record Key(ModelOptMatrix matrix,int batch) {}
     private final TornadoDevice device;
     private final long budget;
     private final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
-    private long resident,uploads,evictions,executions,kernelNanos,graphId;
+    private long resident,uploads,evictions,executions,kernelNanos,graphId,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     public FlashNextFp8MatrixExecutor(int device,long budget) {this(TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(device),budget);}
     public FlashNextFp8MatrixExecutor(TornadoDevice device,long budget) {if(budget<=0) throw new IllegalArgumentException("Positive FP8 cache budget required");this.device=device;this.budget=budget;}
-    public synchronized Statistics statistics() {return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size());}
+    public synchronized Statistics statistics() {return new Statistics(resident,uploads,evictions,executions,kernelNanos,cache.size(),cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes);}
     private static long footprint(Key key) {
         var matrix=key.matrix;int batch=key.batch,k=matrix.columns(),n=matrix.rows();
         return matrix.weights().bytes()+4L*matrix.blockScales().elements()+5L*batch*k
@@ -35,7 +35,7 @@ public final class FlashNextFp8MatrixExecutor implements AutoCloseable {
     }
     private final class Entry implements AutoCloseable {
         final Arena arena=Arena.ofShared();final long bytes;final int rows,columns,batch;
-        final FloatArray input,inputScales,control,output;final ByteArray encoded;final TornadoExecutionPlan plan;
+        final FloatArray input,inputScales,control,output;final ByteArray encoded;final TornadoExecutionPlan plan;TornadoExecutionResult lastResult;
         Entry(Key key) throws Exception {
             rows=key.matrix.rows();columns=key.matrix.columns();batch=key.batch;bytes=footprint(key);TornadoExecutionPlan built=null;
             try {
@@ -65,7 +65,7 @@ public final class FlashNextFp8MatrixExecutor implements AutoCloseable {
         public void close() throws Exception {try {plan.close();} finally {arena.close();}}
     }
     private Entry entry(Key key) throws IOException {
-        if(closed) throw new IOException("FP8 executor is closed");var entry=cache.get(key);if(entry!=null) return entry;
+        if(closed) throw new IOException("FP8 executor is closed");var entry=cache.get(key);if(entry!=null) {cacheHits++;return entry;}cacheMisses++;
         long size=footprint(key);if(size>budget) throw new IOException("FP8 matrix/workspace exceeds cache budget "+budget);
         while(size>budget-resident) {
             var iterator=cache.entrySet().iterator();var oldest=iterator.next();
@@ -82,16 +82,19 @@ public final class FlashNextFp8MatrixExecutor implements AutoCloseable {
         var entry=entry(new Key(matrix,Math.multiplyExact((rows+31)/32,32)));entry.input.getSegment().fill((byte)0);
         for(int i=0;i<values.length;i++) {if(!Float.isFinite(values[i])) throw new IllegalArgumentException("Nonfinite FP8 activation");entry.input.set(i,FloatFormats.roundBf16(values[i]));}
         entry.control.set(3,routeWeight);
-        try {var execution=entry.plan.execute();long time=execution.getProfilerResult().getDeviceKernelTime();if(time<=0) throw new IOException("FP8 recorded no CUDA kernels");
+        try {var execution=entry.plan.execute();entry.lastResult=execution;long time=execution.getProfilerResult().getDeviceKernelTime();if(time<=0) throw new IOException("FP8 recorded no CUDA kernels");
             for(int i=0;i<result.length;i++) result[i]=entry.output.get(i);executions++;kernelNanos+=time;
+            hostUploadBytes+=4L*entry.input.getSize()+16;hostDownloadBytes+=4L*entry.output.getSize();
         } catch(RuntimeException failure) {throw new IOException("FP8 execution failed",failure);}
     }
+    /** Diagnostics download the last execution's encodings; only a cold entry re-executes. */
+    private TornadoExecutionResult result(Entry entry) {return entry.lastResult!=null ? entry.lastResult : entry.plan.execute();}
     public synchronized byte[] readEncoded(ModelOptMatrix matrix,int rows) throws IOException {
-        var entry=entry(new Key(matrix,Math.multiplyExact((rows+31)/32,32)));entry.plan.execute().transferToHost(entry.encoded);byte[] data=new byte[rows*matrix.columns()];
+        var entry=entry(new Key(matrix,Math.multiplyExact((rows+31)/32,32)));result(entry).transferToHost(entry.encoded);byte[] data=new byte[rows*matrix.columns()];
         for(int i=0;i<data.length;i++) data[i]=entry.encoded.get(i);return data;
     }
     public synchronized float[] readScales(ModelOptMatrix matrix,int rows) throws IOException {
-        var entry=entry(new Key(matrix,Math.multiplyExact((rows+31)/32,32)));entry.plan.execute().transferToHost(entry.inputScales);float[] data=new float[rows*matrix.columns()/128];
+        var entry=entry(new Key(matrix,Math.multiplyExact((rows+31)/32,32)));result(entry).transferToHost(entry.inputScales);float[] data=new float[rows*matrix.columns()/128];
         for(int i=0;i<data.length;i++) data[i]=entry.inputScales.get(i);return data;
     }
     @Override public synchronized void close() throws IOException {

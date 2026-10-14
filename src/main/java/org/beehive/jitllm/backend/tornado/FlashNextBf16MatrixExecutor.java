@@ -21,7 +21,7 @@ import uk.ac.manchester.tornado.cublas.CuBlasOptions;
  * Packed expert weights remain in the separate NVFP4 cache. This cache holds only BF16 matrices.
  */
 public final class FlashNextBf16MatrixExecutor implements AutoCloseable {
-    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos) {}
+    public record Statistics(long residentBytes,long uploads,long evictions,long executions,long kernelNanos,long cacheHits,long cacheMisses,long hostUploadBytes,long hostDownloadBytes) {}
     private static final long WORKSPACE=32L<<20;
     // The pinned SDK rebinds a cuBLAS handle when its caller thread changes, which
     // resets the native workspace. Give each caller its own plan and handle.
@@ -29,14 +29,14 @@ public final class FlashNextBf16MatrixExecutor implements AutoCloseable {
     private final TornadoDevice device;
     private final long budget;
     private final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
-    private long resident,uploads,evictions,executions,kernelNanos,graphId;
+    private long resident,uploads,evictions,executions,kernelNanos,graphId,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     public FlashNextBf16MatrixExecutor(TornadoDevice device,long budget) {
         if(budget<=0) throw new IllegalArgumentException("Positive BF16 GEMM budget required");
         this.device=device;this.budget=budget;
     }
     public FlashNextBf16MatrixExecutor(int deviceIndex,long budget) {this(TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex),budget);}
-    public synchronized Statistics statistics() {return new Statistics(resident,uploads,evictions,executions,kernelNanos);}
+    public synchronized Statistics statistics() {return new Statistics(resident,uploads,evictions,executions,kernelNanos,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes);}
     private static long size(Key key) {
         long columns=key.matrix().columns(),rows=key.matrix().rows();
         long source=key.broadcast() ? columns : Math.multiplyExact(columns,key.batch());
@@ -99,6 +99,7 @@ public final class FlashNextBf16MatrixExecutor implements AutoCloseable {
         int out=key.broadcast() ? key.matrix().rows() : Math.multiplyExact(key.matrix().rows(),key.batch());
         if(input.length!=in || output.length!=out) throw new IllegalArgumentException("Wrong BF16 GEMM input/output shape");
         var entry=cache.get(key);
+        if(entry!=null) cacheHits++;else cacheMisses++;
         if(entry==null) {
             long bytes=size(key);if(bytes>budget) throw new IOException("BF16 batch GEMM requires "+bytes+" bytes, exceeding budget "+budget);
             while(resident+bytes>budget) {
@@ -113,7 +114,7 @@ public final class FlashNextBf16MatrixExecutor implements AutoCloseable {
         try {
             long nanos=entry.plan.execute().getProfilerResult().getDeviceKernelTime();
             if(nanos<=0) throw new IOException("BF16 GEMM packing/unpacking kernels did not execute");
-            executions++;kernelNanos+=nanos;for(int i=0;i<output.length;i++) output[i]=entry.output.get(i);
+            executions++;kernelNanos+=nanos;hostUploadBytes+=4L*input.length;hostDownloadBytes+=4L*output.length;for(int i=0;i<output.length;i++) output[i]=entry.output.get(i);
         } catch(RuntimeException failure) {throw new IOException("Native BF16 GEMM failed",failure);}
     }
     @Override public synchronized void close() throws IOException {

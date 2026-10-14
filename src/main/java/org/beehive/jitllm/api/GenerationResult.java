@@ -16,6 +16,7 @@ public final class GenerationResult {
     private final FinishReason finishReason;
     private final GenerationTimings timings;
     private final java.util.List<ChatContent.ToolCall> toolCalls;
+    private final java.util.List<TokenLogprob> tokenLogprobs;
 
     /** A result with no tool calls — every path that cannot produce one. */
     @Experimental
@@ -36,12 +37,33 @@ public final class GenerationResult {
             FinishReason finishReason,
             GenerationTimings timings,
             java.util.List<ChatContent.ToolCall> toolCalls) {
+        this(
+                text,
+                promptTokens,
+                generatedTokens,
+                finishReason,
+                timings,
+                toolCalls,
+                java.util.List.of());
+    }
+
+    @Experimental
+    public GenerationResult(
+            String text,
+            int promptTokens,
+            int generatedTokens,
+            FinishReason finishReason,
+            GenerationTimings timings,
+            java.util.List<ChatContent.ToolCall> toolCalls,
+            java.util.List<TokenLogprob> tokenLogprobs) {
         this.text = Objects.requireNonNull(text, "text");
         this.promptTokens = promptTokens;
         this.generatedTokens = generatedTokens;
         this.finishReason = Objects.requireNonNull(finishReason, "finishReason");
         this.timings = Objects.requireNonNull(timings, "timings");
         this.toolCalls = java.util.List.copyOf(toolCalls);
+        this.tokenLogprobs =
+                tokenLogprobs == null ? java.util.List.of() : java.util.List.copyOf(tokenLogprobs);
     }
 
     public String text() {
@@ -78,6 +100,18 @@ public final class GenerationResult {
      */
     public java.util.List<ChatContent.ToolCall> toolCalls() {
         return toolCalls;
+    }
+
+    /**
+     * One log-probability entry per generated token, in generation order — <b>immutable</b>, and
+     * <b>empty</b> unless the request asked for log-probabilities. When present, entries align
+     * with the {@link GenerationEvent}s: entry <i>n</i> is event <i>n</i>'s token, with the same
+     * text. Stop-sequence truncation shortens {@link #text()} after generation and does not
+     * remove entries: the tokens were generated, and their probabilities are facts about them.
+     */
+    @Experimental
+    public java.util.List<TokenLogprob> tokenLogprobs() {
+        return tokenLogprobs;
     }
 
     @Override

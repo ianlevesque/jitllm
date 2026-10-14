@@ -55,7 +55,10 @@ public final class Qwen4GpuModel extends Qwen4CpuModel implements ManagedDeviceM
             for(int i=0;i<backend.getNumDevices();i++) if(backend.getDevice(i).equals(backend.getDefaultDevice())) {device=i;break;}
         }
         if(device<0 || device>=backend.getNumDevices()) throw new IllegalArgumentException("Invalid Flash-Next CUDA device ordinal");
-        long defaultWeights=Math.min(16L<<30,backend.getDevice(device).getMaxGlobalMemory()/2-(4L<<30));
+        // Cap raised from 16 GiB: on large cards the extra headroom goes to the MoE expert
+        // cache (weights minus the separately capped projection budget). The device-memory
+        // fraction bound is unchanged, so smaller cards resolve to the same defaults as before.
+        long defaultWeights=Math.min(24L<<30,backend.getDevice(device).getMaxGlobalMemory()/2-(4L<<30));
         long weights=Long.getLong("jitllm.qwen4.gpuCacheBytes",defaultWeights);
         long projectionBudget=Long.getLong("jitllm.qwen4.gpuProjectionBytes",Math.min(8L<<30,weights*2/3));
         if(projectionBudget<=0 || projectionBudget>=weights) throw new IllegalArgumentException("Projection budget must fit inside the Flash-Next weight budget");
@@ -75,7 +78,7 @@ public final class Qwen4GpuModel extends Qwen4CpuModel implements ManagedDeviceM
             Qwen4MtpBlock mtp=null;FlashNextLayerExecutor mtpLayers=null;FlashNextQsaExecutor mtpAttention=null;
             FlashNextFp8MoeExecutor mtpExperts=null;FlashNextMtpFusionExecutor mtpFusion=null;
             if(useMtp) {
-                mtpLayers=new FlashNextLayerExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuMtpLayerBytes",4L<<20),true);resources.add(mtpLayers);
+                mtpLayers=new FlashNextLayerExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuMtpLayerBytes",64L<<20),true);resources.add(mtpLayers);
                 mtpAttention=new FlashNextQsaExecutor(device,checkpoints,Long.getLong("jitllm.qwen4.gpuMtpQsaBytes",2L<<30),true);resources.add(mtpAttention);
                 mtpExperts=new FlashNextFp8MoeExecutor(device,Long.getLong("jitllm.qwen4.gpuMtpExpertBytes",128L<<20));resources.add(mtpExperts);
                 mtpFusion=new FlashNextMtpFusionExecutor(device,Long.getLong("jitllm.qwen4.gpuMtpFusionBytes",128L<<20));resources.add(mtpFusion);
@@ -106,14 +109,18 @@ public final class Qwen4GpuModel extends Qwen4CpuModel implements ManagedDeviceM
             throw new UnsupportedOperationException("Flash-Next CUDA uses session-owned FP8 KV pages; select StorageOptions.fp8()");
         if (policy.prefillBatchSize()!=1 || policy.samplingResidency()!=ExecutionPolicy.SamplingResidency.HOST
                 || policy.splitKvPartitions().isPresent() || policy.packedHalf2Attention() || policy.scalarFp16KeyValueReads())
-            throw new UnsupportedOperationException("Flash-Next currently uses sequential prefill and host sampling; batched prefill and legacy attention overrides are not implemented");
+            throw new UnsupportedOperationException("Flash-Next uses model-owned prefill (sequential, or distinct-row batched under jitllm.qwen4.batchedPrefill) and host sampling; policy prefill batching and legacy attention overrides are not implemented; use jitllm.qwen4.prefillChunk for chunked prefill geometry");
     }
     @Override public synchronized ExecutionInfo prepareDevice(State state) {
         requireOpen();
         if (!(state instanceof org.beehive.jitllm.inference.state.Qwen4State)) throw new IllegalArgumentException("Expected Flash-Next state");
-        return new ExecutionInfo("CUDA",projections.deviceName(),"TornadoVM / CUDA", mtp==null ? "sequential prefill and decode" : "sequential prefill / MTP draft-three target verification",1,
+        String prefill=engine().batchedPrefillEnabled()
+                ? "batched prefill (up to "+Qwen4CpuEngine.BatchedPrefill.effectiveRows(engine().batchedPrefillRows())+" rows)"
+                : "sequential prefill";
+        return new ExecutionInfo("CUDA",projections.deviceName(),"TornadoVM / CUDA", mtp==null ? prefill+" and decode" : prefill+" / MTP draft-three target verification",1,
                 "FP8 E4M3 paged KV / BF16 fresh-prefill shadow", "BF16 projections / native NVFP4 experts", "QSA sparse GQA",false,true,
-                "cuBLASLt NVFP4 experts / FP32 HC; cuBLAS BF16 HC prefill; FlashInfer XQA decode"+(mtp==null ? "" : "; native block-FP8 MTP / target sampling"));
+                "cuBLASLt NVFP4 experts / FP32 HC; cuBLAS BF16 HC prefill; FlashInfer XQA decode"+(mtp==null ? "" : "; native block-FP8 MTP / target sampling")
+                        +(engine().prefillChunk()>1 ? "; prefill geometry chunk "+engine().prefillChunk() : ""));
     }
     private void requireOpen() { if(engine().isClosed()) throw new IllegalStateException("Flash-Next CUDA model is closed"); }
     /** Shared HC/projection/MoE workspaces require serialization across sessions. */
@@ -150,12 +157,32 @@ public final class Qwen4GpuModel extends Qwen4CpuModel implements ManagedDeviceM
         result.put("qsa_reserved_bytes",q.reservedBytes());result.put("qsa_materialized_bytes",q.materializedPageBytes());result.put("qsa_sessions",q.sessions());result.put("qsa_snapshots",q.liveSnapshots());
         result.put("moe_bytes",m.residentBytes());result.put("moe_layers",m.layers());result.put("moe_forwards",m.forwards());result.put("moe_evictions",m.evictions());
         result.put("moe_intermediate_download_bytes",m.intermediateDownloadBytes());
+        var e=engine().forwardStatistics();var bf=projections.bf16Statistics();var ff=projections.bf16FloatStatistics();
+        result.put("prefill_chunk",engine().prefillChunk());
+        var bp=engine().batchedPrefillStatistics();
+        result.put("batched_prefill_enabled",engine().batchedPrefillEnabled());
+        result.put("batched_prefill_rows",engine().batchedPrefillRows());
+        result.put("batched_prefill_chunks",bp.chunks());result.put("batched_prefill_ingested_rows",bp.rows());
+        result.put("batched_prefill_fallbacks",bp.fallbacks());
+        result.put("batched_prefill_embedding_rows",bp.embeddingRows());result.put("batched_prefill_ple_rows",bp.pleRows());
+        result.put("batched_prefill_hyper_rows",bp.hyperRows());result.put("batched_prefill_delta_rows",bp.deltaRows());
+        result.put("batched_prefill_qsa_rows",bp.qsaRows());result.put("batched_prefill_moe_rows",bp.moeRows());
+        result.put("engine_forwards",e.forwards());result.put("engine_prefill_forwards",e.prefillForwards());result.put("engine_rollbacks",e.rollbacks());
+        result.put("projection_uploads",p.uploads());result.put("projection_evictions",p.evictions());
+        result.put("projection_cache_hits",p.cacheHits());result.put("projection_cache_misses",p.cacheMisses());
+        result.put("bf16_gemm_uploads",bf.uploads());result.put("bf16_gemm_evictions",bf.evictions());result.put("bf16_gemm_executions",bf.executions());
+        result.put("bf16_float_bytes",ff.residentBytes());result.put("bf16_float_uploads",ff.uploads());result.put("bf16_float_evictions",ff.evictions());result.put("bf16_float_executions",ff.executions());
+        result.put("moe_expert_cache_hits",m.expertCacheHits());result.put("moe_expert_cache_misses",m.expertCacheMisses());
+        result.put("moe_expert_file_bytes",m.expertFileBytes());result.put("moe_expert_evicted_bytes",m.expertEvictedBytes());result.put("moe_registered_experts",m.registeredExperts());
+        result.put("host_upload_bytes",p.hostUploadBytes()+r.hostUploadBytes()+l.hostUploadBytes()+q.hostUploadBytes()+m.hostUploadBytes());
+        result.put("host_download_bytes",p.hostDownloadBytes()+r.hostDownloadBytes()+l.hostDownloadBytes()+q.hostDownloadBytes()+m.hostDownloadBytes());
         result.put("mtp_enabled",mtp!=null);result.put("mtp_sessions",speculative.size());
         if(mtp!=null) {
             var ml=mtpLayers.statistics();var mq=mtpAttention.statistics();var me=mtpExperts.statistics();var mf=mtpFusion.statistics();
             result.put("mtp_layer_bytes",ml.residentBytes());result.put("mtp_qsa_reserved_bytes",mq.reservedBytes());result.put("mtp_qsa_snapshots",mq.liveSnapshots());
             result.put("mtp_expert_bytes",me.residentBytes());result.put("mtp_expert_forwards",me.forwards());result.put("mtp_fusion_bytes",mf.residentBytes());result.put("mtp_fusion_forwards",mf.forwards());
             result.put("mtp_kv_download_bytes",mq.kvHostDownloadBytes());
+            result.put("mtp_expert_cache_hits",me.expertCacheHits());result.put("mtp_expert_cache_misses",me.expertCacheMisses());result.put("mtp_expert_file_bytes",me.expertFileBytes());
         }
         return result;
     }

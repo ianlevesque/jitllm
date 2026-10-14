@@ -16,12 +16,12 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
  */
 public final class FlashNextDeltaNetExecutor implements DeltaNetExecutor,AutoCloseable {
     public record Statistics(long residentBytes,int sessions,int liveSnapshots,long forwards,long checkpoints,
-                             long restores,long resets,long kernelNanos,long stateHostDownloadBytes) {}
+                             long restores,long resets,long kernelNanos,long stateHostDownloadBytes,long hostUploadBytes,long hostDownloadBytes) {}
     private final TornadoDevice device;
     private final int capacity;
     private final long budget;
     private final Set<DeviceSession> sessions=Collections.newSetFromMap(new IdentityHashMap<>());
-    private long resident,graphId,forwards,checkpoints,restores,resets,kernelNanos;
+    private long resident,graphId,forwards,checkpoints,restores,resets,kernelNanos,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
 
     public FlashNextDeltaNetExecutor(int deviceIndex,int checkpointCapacity,long budget) {
@@ -31,7 +31,7 @@ public final class FlashNextDeltaNetExecutor implements DeltaNetExecutor,AutoClo
     }
     public synchronized Statistics statistics() {
         int active=0;for(var session:sessions) for(boolean used:session.occupied) if(used) active++;
-        return new Statistics(resident,sessions.size(),active,forwards,checkpoints,restores,resets,kernelNanos,0);
+        return new Statistics(resident,sessions.size(),active,forwards,checkpoints,restores,resets,kernelNanos,0,hostUploadBytes,hostDownloadBytes);
     }
     private long footprint(Shape shape) {
         long floats=(long)shape.stateSize()*(capacity+1)+shape.channels()*2L+shape.channels()*shape.convolutionKernel()
@@ -88,7 +88,7 @@ public final class FlashNextDeltaNetExecutor implements DeltaNetExecutor,AutoClo
             try {
                 var result=plan.execute();long nanos=result.getProfilerResult().getDeviceKernelTime();
                 if(nanos<=0) throw new IOException("GPU DeltaNet recorded no kernel execution");
-                kernelNanos+=nanos;return result;
+                kernelNanos+=nanos;hostUploadBytes+=8+4L*(projected.getSize()+gate.getSize()+alpha.getSize()+beta.getSize());return result;
             } catch(RuntimeException failure) {throw new IOException("GPU DeltaNet execution failed",failure);}
         }
         @Override public float[] forward(float[] qkv,float[] z,float[] a,float[] b) throws IOException {
@@ -97,7 +97,7 @@ public final class FlashNextDeltaNetExecutor implements DeltaNetExecutor,AutoClo
                 if(qkv.length!=projected.getSize() || z.length!=gate.getSize() || a.length!=alpha.getSize() || b.length!=beta.getSize())
                     throw new IllegalArgumentException("Invalid DeltaNet projection shape");
                 put(projected,qkv);put(gate,z);put(alpha,a);put(beta,b);
-                execute(0,0).transferToHost(output);forwards++;
+                execute(0,0).transferToHost(output);hostDownloadBytes+=4L*output.getSize();forwards++;
                 float[] values=new float[output.getSize()];for(int i=0;i<values.length;i++) values[i]=output.get(i);
                 return values;
             }

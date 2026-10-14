@@ -202,7 +202,8 @@ final class DelegatingModel implements TextGenerationModel {
         return new ModelCapabilities(
                 format.supportsToolCalling(),
                 format.supportsThinking(),
-                format.supportsReasoningEffort());
+                format.supportsReasoningEffort(),
+                format.supportsImages());
     }
 
     /**

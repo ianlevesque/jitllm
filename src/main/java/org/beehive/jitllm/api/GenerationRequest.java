@@ -28,6 +28,11 @@ public final class GenerationRequest {
     private final int maxNewTokens;
     private final float temperature;
     private final float topP;
+    private final int topK;
+    private final float minP;
+    private final float frequencyPenalty;
+    private final float presencePenalty;
+    private final float repetitionPenalty;
     private final Long seed;
     private final List<String> stopSequences;
     private final Consumer<String> onToken;
@@ -35,6 +40,10 @@ public final class GenerationRequest {
     private final List<ToolSpec> tools;
     private final java.util.function.Consumer<GenerationEvent> onEvent;
     private final CancellationToken cancellation;
+    private final ThinkingMode thinkingMode;
+    private final ReasoningEffort reasoningEffort;
+    private final boolean logprobs;
+    private final int topLogprobs;
 
     private GenerationRequest(Builder builder) {
         this.messages = builder.messages == null ? null : List.copyOf(builder.messages);
@@ -45,10 +54,19 @@ public final class GenerationRequest {
         this.maxNewTokens = builder.maxNewTokens;
         this.temperature = builder.temperature;
         this.topP = builder.topP;
+        this.topK = builder.topK;
+        this.minP = builder.minP;
+        this.frequencyPenalty = builder.frequencyPenalty;
+        this.presencePenalty = builder.presencePenalty;
+        this.repetitionPenalty = builder.repetitionPenalty;
         this.seed = builder.seed;
         this.stopSequences = List.copyOf(builder.stopSequences);
         this.onToken = builder.onToken;
         this.cancellation = builder.cancellation;
+        this.thinkingMode = builder.thinkingMode;
+        this.reasoningEffort = builder.reasoningEffort;
+        this.logprobs = builder.logprobs;
+        this.topLogprobs = builder.topLogprobs;
     }
 
     public static Builder builder() {
@@ -79,6 +97,34 @@ public final class GenerationRequest {
 
     public float topP() {
         return topP;
+    }
+
+    /** Keep only the {@code k} most probable tokens; {@code 0} or {@code -1} disables it. */
+    public int topK() {
+        return topK;
+    }
+
+    /**
+     * Keep only tokens at least this fraction as probable as the most probable token; {@code 0}
+     * disables it.
+     */
+    public float minP() {
+        return minP;
+    }
+
+    /** OpenAI additive penalty per previous occurrence of a token; {@code 0} disables it. */
+    public float frequencyPenalty() {
+        return frequencyPenalty;
+    }
+
+    /** OpenAI additive penalty applied once per previously seen token; {@code 0} disables it. */
+    public float presencePenalty() {
+        return presencePenalty;
+    }
+
+    /** Hugging Face multiplicative repetition penalty; {@code 1} disables it. */
+    public float repetitionPenalty() {
+        return repetitionPenalty;
     }
 
     /**
@@ -137,6 +183,36 @@ public final class GenerationRequest {
         return cancellation;
     }
 
+    /**
+     * This request's thinking override, or {@code null} to use the session's resolved mode.
+     *
+     * <p>Resolution is request over session over model: the same chain {@link SessionOptions}
+     * applies against {@link ModelOptions}, one level further out. An explicit mode the model's
+     * format cannot represent is rejected at generation, exactly as at session open.
+     */
+    @Experimental
+    public ThinkingMode thinkingMode() {
+        return thinkingMode;
+    }
+
+    /** This request's reasoning-effort override, or {@code null} for the session's. */
+    @Experimental
+    public ReasoningEffort reasoningEffort() {
+        return reasoningEffort;
+    }
+
+    /** Whether the result and events carry per-token log-probabilities. */
+    @Experimental
+    public boolean logprobs() {
+        return logprobs || topLogprobs > 0;
+    }
+
+    /** How many alternative tokens each entry carries, in {@code [0, 20]}; {@code 0} for none. */
+    @Experimental
+    public int topLogprobs() {
+        return topLogprobs;
+    }
+
     /** Not thread-safe; build one request per call. */
     /**
      * Exactly one of the two request forms, and a conversation that says something.
@@ -178,6 +254,11 @@ public final class GenerationRequest {
         private int maxNewTokens = 512;
         private float temperature = 0.1f;
         private float topP = 0.95f;
+        private int topK = 0;
+        private float minP = 0.0f;
+        private float frequencyPenalty = 0.0f;
+        private float presencePenalty = 0.0f;
+        private float repetitionPenalty = 1.0f;
         private Long seed;
         private List<String> stopSequences = List.of();
         private Consumer<String> onToken;
@@ -185,6 +266,10 @@ public final class GenerationRequest {
         private List<ToolSpec> tools = List.of();
         private java.util.function.Consumer<GenerationEvent> onEvent;
         private CancellationToken cancellation;
+        private ThinkingMode thinkingMode;
+        private ReasoningEffort reasoningEffort;
+        private boolean logprobs;
+        private int topLogprobs;
 
         private Builder() {}
 
@@ -212,6 +297,45 @@ public final class GenerationRequest {
 
         public Builder topP(float topP) {
             this.topP = topP;
+            return this;
+        }
+
+        /** {@code 0} (the default) or {@code -1} keeps every token top-p and min-p leave. */
+        public Builder topK(int topK) {
+            this.topK = topK;
+            return this;
+        }
+
+        /** {@code 0} (the default) disables min-p filtering. */
+        public Builder minP(float minP) {
+            this.minP = minP;
+            return this;
+        }
+
+        /**
+         * Subtracted from a token's logit once per previous occurrence, counting the context, the
+         * prompt and this request's earlier output. {@code 0} (the default) disables it; negative
+         * values reward repetition instead.
+         */
+        public Builder frequencyPenalty(float frequencyPenalty) {
+            this.frequencyPenalty = frequencyPenalty;
+            return this;
+        }
+
+        /**
+         * Like {@link #frequencyPenalty(float)}, but charged once however often a token repeats.
+         */
+        public Builder presencePenalty(float presencePenalty) {
+            this.presencePenalty = presencePenalty;
+            return this;
+        }
+
+        /**
+         * Divides a seen token's positive logit by this factor (and multiplies a negative one by
+         * it) before the additive penalties. {@code 1} (the default) disables it.
+         */
+        public Builder repetitionPenalty(float repetitionPenalty) {
+            this.repetitionPenalty = repetitionPenalty;
             return this;
         }
 
@@ -287,6 +411,56 @@ public final class GenerationRequest {
             return this;
         }
 
+        /**
+         * Overrides the session's thinking mode for this request only. {@code null} (the
+         * default) inherits the session's resolved mode, which is what every request built
+         * before this control existed does. {@link ThinkingMode#DEFAULT} is also an override:
+         * it asks for the family's own behaviour even on a session opened with an explicit mode.
+         *
+         * <p>Only this request's encoding changes — the thinking control after the assistant
+         * header and any reasoning instructions in the system turn. The model, its weights and
+         * the session's execution state are untouched, and a following request without an
+         * override encodes exactly as it would have before.
+         */
+        @Experimental
+        public Builder thinkingMode(ThinkingMode thinkingMode) {
+            this.thinkingMode = thinkingMode;
+            return this;
+        }
+
+        /**
+         * Overrides the session's reasoning effort for this request only; {@code null} (the
+         * default) inherits it. An explicit effort together with an effective {@link
+         * ThinkingMode#DISABLED} is rejected at generation, as at session open.
+         */
+        @Experimental
+        public Builder reasoningEffort(ReasoningEffort reasoningEffort) {
+            this.reasoningEffort = reasoningEffort;
+            return this;
+        }
+
+        /**
+         * Asks for each generated token's log-probability on the {@link GenerationResult} and
+         * on every {@link GenerationEvent}. Off by default: capturing reads the full score row
+         * per token, and a caller who never looks at the numbers should not pay for them.
+         * Asking for {@link #topLogprobs(int)} alternatives implies this.
+         */
+        @Experimental
+        public Builder logprobs(boolean logprobs) {
+            this.logprobs = logprobs;
+            return this;
+        }
+
+        /**
+         * How many most-probable alternatives accompany each token's log-probability, in {@code
+         * [0, 20]} (the OpenAI cap). {@code 0} (the default) keeps none.
+         */
+        @Experimental
+        public Builder topLogprobs(int topLogprobs) {
+            this.topLogprobs = topLogprobs;
+            return this;
+        }
+
         public GenerationRequest build() {
             requireExactlyOneRequestForm(prompt, systemPrompt, messages);
             if (maxNewTokens <= 0) {
@@ -300,6 +474,28 @@ public final class GenerationRequest {
             }
             if (!(topP > 0 && topP <= 1)) {
                 throw new IllegalArgumentException("topP must be in (0, 1]: " + topP);
+            }
+            if (topK < -1) {
+                throw new IllegalArgumentException(
+                        "topK must be -1 (disabled), 0 (disabled) or positive: " + topK);
+            }
+            if (!(minP >= 0 && minP <= 1)) {
+                throw new IllegalArgumentException("minP must be in [0, 1]: " + minP);
+            }
+            if (!Float.isFinite(frequencyPenalty)) {
+                throw new IllegalArgumentException(
+                        "frequencyPenalty must be finite: " + frequencyPenalty);
+            }
+            if (!Float.isFinite(presencePenalty)) {
+                throw new IllegalArgumentException(
+                        "presencePenalty must be finite: " + presencePenalty);
+            }
+            if (topLogprobs < 0 || topLogprobs > 20) {
+                throw new IllegalArgumentException("topLogprobs must be in [0, 20]: " + topLogprobs);
+            }
+            if (!(repetitionPenalty > 0) || !Float.isFinite(repetitionPenalty)) {
+                throw new IllegalArgumentException(
+                        "repetitionPenalty must be positive and finite: " + repetitionPenalty);
             }
             return new GenerationRequest(this);
         }

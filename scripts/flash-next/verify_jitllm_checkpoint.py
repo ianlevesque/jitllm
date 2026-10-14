@@ -1,6 +1,6 @@
 """Compare Java NVMe PLE staging with PyTorch using the actual NVIDIA checkpoint.
 
-Run with python scripts/flash-next/verify_jitllm_checkpoint.py MODEL_DIR.
+Run with .venv-qwen-flash-next/bin/python verify_jitllm_checkpoint.py MODEL_DIR.
 Only requested rows are read. The 51 GB PLE table is never materialized.
 """
 import argparse
@@ -15,7 +15,7 @@ import tempfile
 
 import torch
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent
 PREFIX = "model.language_model.layers.1.ple.ple_embedding"
 
 
@@ -114,11 +114,11 @@ def verify(model: Path) -> dict:
 
     with tempfile.TemporaryDirectory(prefix="jitllm-real-checkpoint-") as temp:
         compiled = Path(temp) / "classes"
-        java = ROOT / "src/main/java/org/beehive/jitllm"
+        java = ROOT / "extensions/jitllm/src/main/java/org/beehive/jitllm"
         sources = list((java / "format/safetensors").glob("*.java"))
         sources += [java / "model/qwen4/PleHash.java", java / "model/loader/Qwen4PleTable.java",
                     java / "integration/cli/FlashNextCheckpointProbe.java"]
-        sources.append(ROOT / "src/main/java/org/beehive/jitllm/server/Json.java")
+        sources.append(ROOT / ".local/jitllm/src/main/java/org/beehive/jitllm/server/Json.java")
         subprocess.run(["javac", "-d", str(compiled), *map(str, sources)], check=True)
         request = Path(temp) / "request.json"
         request.write_text(json.dumps({"windows": windows, "rows": rows, "cache_bytes": 1048576, "page_bytes": 4096}))

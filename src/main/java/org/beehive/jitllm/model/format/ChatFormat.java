@@ -38,6 +38,50 @@ public interface ChatFormat {
     }
 
     /**
+     * Returns {@code true} when this chat format renders image content pieces through {@link
+     * #encodeRichMessage(Role, List)}. Formats that do must override this to return {@code true};
+     * callers check it before handing a conversation with images to the encoder, so an image
+     * sent to a text-only family fails as unsupported rather than being dropped.
+     */
+    default boolean supportsImages() {
+        return false;
+    }
+
+    /**
+     * Encodes one message whose content mixes text and images, in order. Each {@link
+     * ContentPart.Image} carries the number of language-model tokens the image expands to
+     * (derived from its preprocessed grid by the caller); the format renders the family's
+     * vision markers around that many image placeholder tokens, as its chat template plus
+     * image processor do. Only called when {@link #supportsImages()} is {@code true} and the
+     * message actually contains an image.
+     */
+    default List<Integer> encodeRichMessage(Role role, List<ContentPart> parts) {
+        throw new UnsupportedOperationException(
+                "Image content not supported for: " + getClass().getSimpleName());
+    }
+
+    /** One ordered piece of a message rendered by {@link #encodeRichMessage(Role, List)}. */
+    sealed interface ContentPart {
+
+        /** Plain text, encoded as the format encodes message text. */
+        record Text(String text) implements ContentPart {}
+
+        /**
+         * One image, already preprocessed to {@code tokenCount} merged vision tokens.
+         *
+         * @param tokenCount merged vision-token count, positive
+         */
+        record Image(int tokenCount) implements ContentPart {
+            public Image {
+                if (tokenCount <= 0) {
+                    throw new IllegalArgumentException(
+                            "an image expands to a positive token count, got " + tokenCount);
+                }
+            }
+        }
+    }
+
+    /**
      * Returns plain text to append to the system message content when tools are available. Used by
      * formats that inject tool definitions into the <em>system</em> message.
      *

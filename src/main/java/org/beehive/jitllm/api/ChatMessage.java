@@ -19,7 +19,8 @@ import org.beehive.jitllm.runtime.diagnostics.DiagnosticCode;
  * <table>
  *   <caption>Legal combinations</caption>
  *   <tr><th>Role</th><th>Content</th></tr>
- *   <tr><td>{@code SYSTEM}, {@code USER}</td><td>{@link ChatContent.Text} only</td></tr>
+ *   <tr><td>{@code SYSTEM}</td><td>{@link ChatContent.Text} only</td></tr>
+ *   <tr><td>{@code USER}</td><td>{@link ChatContent.Text} and/or {@link ChatContent.Image}</td></tr>
  *   <tr><td>{@code ASSISTANT}</td><td>{@code Text} and/or {@link ChatContent.ToolCall}</td></tr>
  *   <tr><td>{@code TOOL}</td><td>{@link ChatContent.ToolResult} only</td></tr>
  * </table>
@@ -52,7 +53,12 @@ public record ChatMessage(ChatRole role, List<ChatContent> content) {
     private static void requireLegal(ChatRole role, ChatContent piece) {
         boolean legal =
                 switch (role) {
-                    case SYSTEM, USER -> piece instanceof ChatContent.Text;
+                    case SYSTEM -> piece instanceof ChatContent.Text;
+                    // Images ride in user turns only: the checkpoint templates render them
+                    // there and raise on a system image, and no family accepts one elsewhere.
+                    case USER ->
+                            piece instanceof ChatContent.Text
+                                    || piece instanceof ChatContent.Image;
                     case ASSISTANT ->
                             piece instanceof ChatContent.Text
                                     || piece instanceof ChatContent.ToolCall;
@@ -71,7 +77,8 @@ public record ChatMessage(ChatRole role, List<ChatContent> content) {
 
     private static String legalContentFor(ChatRole role) {
         return switch (role) {
-            case SYSTEM, USER -> role + " carries Text only";
+            case SYSTEM -> "SYSTEM carries Text only";
+            case USER -> "USER carries Text and/or Image";
             case ASSISTANT -> "ASSISTANT carries Text and/or ToolCall";
             case TOOL -> "TOOL carries ToolResult only";
         };

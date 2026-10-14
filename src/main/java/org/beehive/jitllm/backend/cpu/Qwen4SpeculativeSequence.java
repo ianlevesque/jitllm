@@ -25,7 +25,28 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
         void finishPrefill();
         @Override void close() throws IOException;
     }
-    public interface Target extends Endpoint {Qwen4CpuEngine.Output forward(int token,boolean logits) throws IOException;}
+    public interface Target extends Endpoint {
+        Qwen4CpuEngine.Output forward(int token,boolean logits) throws IOException;
+        /** Stages an image-bearing prompt on the target sequence; test endpoints refuse. */
+        default void stageMultimodalPrompt(org.beehive.jitllm.inference.state.MultimodalPromptPlan plan) {
+            throw new UnsupportedOperationException("This target cannot ingest image content");
+        }
+        /** Whether prompt ingest may forward rows in batched-prefill chunks. */
+        default boolean batchedPrefill() {return false;}
+        /** Caller-side cap on rows per chunk; the engine planner caps it further. */
+        default int batchedPrefillRows() {return 32;}
+        /**
+         * Forwards one chunk of an open prefill, returning every row's output, with
+         * logits only on the final row when requested. The default is the sequential
+         * per-token path, operation for operation; a failed chunk must leave the
+         * endpoint at its pre-chunk position (the engine rolls the chunk back).
+         */
+        default Qwen4CpuEngine.Output[] forwardPrefillChunk(int[] tokens,boolean withLogits) throws IOException {
+            var outputs=new Qwen4CpuEngine.Output[tokens.length];
+            for(int i=0;i<tokens.length;i++) outputs[i]=forward(tokens[i],withLogits && i==tokens.length-1);
+            return outputs;
+        }
+    }
     public interface Draft extends Endpoint {
         Qwen4CpuEngine.Output teacher(int successor,float[] targetHidden,boolean logits) throws IOException;
         Qwen4CpuEngine.Output propose(int successor,float[] draftHidden) throws IOException;
@@ -35,7 +56,7 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
         void teacher(int successor,float[] targetHidden,Qwen4CpuEngine.Output output);
         void proposal(int successor,float[] draftHidden,Qwen4CpuEngine.Output output);
     }
-    public record Statistics(long proposed,long accepted,long corrections,long rounds,long targetForwards,long teacherForwards,long draftForwards,long rollbacks) {}
+    public record Statistics(long proposed,long accepted,long corrections,long rounds,long targetForwards,long teacherForwards,long draftForwards,long rollbacks,long checkpointsSkipped) {}
     private record Feed(int successor,float[] hidden) {}
     private final Target target;
     private final Draft draft;
@@ -46,7 +67,7 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
     private int logical,pending=-1;
     private boolean pendingStop,finishTeacherPrefill,closed;
     private Observer observer;
-    private long proposed,accepted,corrections,rounds,targetForwards,teacherForwards,draftForwards,rollbacks;
+    private long proposed,accepted,corrections,rounds,targetForwards,teacherForwards,draftForwards,rollbacks,checkpointsSkipped;
 
     public Qwen4SpeculativeSequence(Target target,Draft draft,int context,int vocabulary,Runnable onClose) {
         if(context<=0 || vocabulary<=0 || target.position()!=0 || draft.position()!=0) throw new IllegalArgumentException("Invalid speculative endpoints");
@@ -54,7 +75,11 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
     }
     private void check() {if(closed) throw new IllegalStateException("Speculative sequence is closed");}
     @Override public int position() {return logical;}
-    public Statistics statistics() {return new Statistics(proposed,accepted,corrections,rounds,targetForwards,teacherForwards,draftForwards,rollbacks);}
+    /** Image rows and MRoPE positions belong to the target sequence; drafts only propose text. */
+    @Override public void stageMultimodalPrompt(org.beehive.jitllm.inference.state.MultimodalPromptPlan plan) {
+        check();target.stageMultimodalPrompt(plan);
+    }
+    public Statistics statistics() {return new Statistics(proposed,accepted,corrections,rounds,targetForwards,teacherForwards,draftForwards,rollbacks,checkpointsSkipped);}
     public void observe(Observer observer) {check();if(logical!=0) throw new IllegalStateException("Attach an observer before generation");this.observer=observer;}
     private Qwen4CpuEngine.Output targetForward(int token,boolean logits) throws IOException {var out=target.forward(token,logits);targetForwards++;return out;}
     private Qwen4CpuEngine.Output teacher(int token,float[] hidden,boolean logits) throws IOException {
@@ -118,7 +143,8 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
         try(var targetBefore=target.snapshot();var draftBefore=draft.snapshot()) {
             try {
                 target.beginPrefill(prompt.size());draft.beginPrefill(teachers);
-                for(int index=0;index<prompt.size();index++) {
+                if(target.batchedPrefill()) ingestBatched(prompt);
+                else for(int index=0;index<prompt.size();index++) {
                     int token=prompt.get(index);
                     if(draft.position()==target.position()-1) draftOutput=teacher(token,targetOutput.hyperHidden(),false);
                     else if(draft.position()!=target.position()) throw new IllegalStateException("Shifted teacher prefix differs");
@@ -129,6 +155,43 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
                 logical=previousLogical;pending=previousPending;pendingStop=previousStop;targetOutput=previousTarget;draftOutput=previousDraft;
                 try {target.restore(targetBefore);draft.restore(draftBefore);rollbacks++;} catch(Exception rollback) {failure.addSuppressed(rollback);}throw failure;
             }
+        }
+    }
+    /**
+     * Chunked form of the sequential ingest loop above. Each chunk's target rows are
+     * forwarded together, then the chunk's teachers run in token order fed from the
+     * collected outputs: the same (token, previous target hyper-hidden) pairs, at the
+     * same draft positions, as the interleave. Target and draft are independent
+     * states, so reordering a teacher after (not before) its token's target forward
+     * changes nothing either consumes; {@code logical} still advances per token so an
+     * observer sees the same position at every teacher call. Chunk sizes are capped
+     * here so the retained per-row outputs stay bounded on long prompts; the engine
+     * planner subdivides further at fresh/geometry boundaries. Snapshot, rollback and
+     * {@code finishPrefill} placement stay with the caller, unchanged.
+     */
+    private void ingestBatched(List<Integer> prompt) throws IOException {
+        boolean lagging;
+        if(draft.position()==target.position()-1) lagging=true;
+        else if(draft.position()==target.position()) lagging=false;
+        else throw new IllegalStateException("Shifted teacher prefix differs");
+        int rows=Qwen4CpuEngine.BatchedPrefill.effectiveRows(target.batchedPrefillRows());
+        for(int from=0;from<prompt.size();from+=rows) {
+            int to=Math.min(prompt.size(),from+rows);
+            int[] chunk=new int[to-from];
+            for(int i=0;i<chunk.length;i++) chunk[i]=prompt.get(from+i);
+            var previous=targetOutput;
+            var outputs=target.forwardPrefillChunk(chunk,to==prompt.size());
+            targetForwards+=chunk.length;
+            if(outputs.length!=chunk.length) throw new IllegalStateException("Prefill chunk returned the wrong output count");
+            for(int index=from;index<to;index++) {
+                if(index>0 || lagging) {
+                    var feed=index==from ? previous : outputs[index-1-from];
+                    draftOutput=teacher(prompt.get(index),feed.hyperHidden(),false);
+                }
+                targetOutput=outputs[index-from];logical++;pending=-1;pendingStop=false;
+            }
+            if(to<prompt.size() && draft.position()!=target.position()-1)
+                throw new IllegalStateException("Shifted teacher prefix differs");
         }
     }
     private boolean verifyRound(int bound,Set<Integer> stops,Sampler sampler,IntConsumer callback,List<Integer> result) throws IOException {
@@ -147,8 +210,14 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
                     }
                 }
                 draft.restore(draftBase);
-                verified.add(targetForward(pending,true));prefixes.add(target.snapshot());
-                for(int candidate:candidates) {verified.add(targetForward(candidate,true));prefixes.add(target.snapshot());}
+                // No prefix snapshot is taken after the final verified forward: restoring
+                // to it would be the identity, since nothing mutates the target afterwards.
+                verified.add(targetForward(pending,true));
+                if(count>0) prefixes.add(target.snapshot());else checkpointsSkipped++;
+                for(int i=0;i<count;i++) {
+                    verified.add(targetForward(candidates[i],true));
+                    if(i+1<count) prefixes.add(target.snapshot());else checkpointsSkipped++;
+                }
                 boolean stop=false;
                 for(int i=0;i<verified.size() && logical<bound;i++) {
                     int token=sample(verified.get(i),sampler);boolean match=i<count && token==candidates[i];
@@ -158,10 +227,11 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
                     stop=emit(token,stops,result,callback);
                     if(stop || !match) break;
                 }
-                target.restore(prefixes.get(restored));rounds++;return stop;
+                if(restored<verified.size()-1) target.restore(prefixes.get(restored));else checkpointsSkipped++;
+                rounds++;return stop;
             } catch(IOException|RuntimeException|Error failure) {
                 try {
-                    if(committed) target.restore(prefixes.get(restored));
+                    if(committed) {if(restored<verified.size()-1) target.restore(prefixes.get(restored));}
                     else {target.restore(base);draft.restore(draftBase);logical=previousLogical;pending=previousPending;pendingStop=previousStop;targetOutput=previousTarget;draftOutput=previousDraft;refresh.clear();}
                     rollbacks++;
                 } catch(Exception rollback) {failure.addSuppressed(rollback);}throw failure;
@@ -186,7 +256,11 @@ public final class Qwen4SpeculativeSequence implements Qwen4SequenceState {
             public int position() {return sequence.position();}public Checkpoint snapshot() throws IOException {return new TargetSaved(sequence.snapshot());}
             public void restore(Checkpoint saved) throws IOException {sequence.restore(((TargetSaved)saved).value());}
             public void reset() {sequence.reset();}public void beginPrefill(int n) {sequence.beginPrefill(n);}public void finishPrefill() {sequence.finishPrefill();}
-            public Qwen4CpuEngine.Output forward(int token,boolean logits) throws IOException {return engine.forward(token,sequence,logits,null);}public void close() throws IOException {sequence.close();}
+            public Qwen4CpuEngine.Output forward(int token,boolean logits) throws IOException {return engine.forward(token,sequence,logits,null);}
+            public boolean batchedPrefill() {return engine.batchedPrefillEnabled();}
+            public int batchedPrefillRows() {return Qwen4CpuEngine.BatchedPrefill.effectiveRows(engine.batchedPrefillRows());}
+            public Qwen4CpuEngine.Output[] forwardPrefillChunk(int[] tokens,boolean logits) throws IOException {return engine.forwardPrefillChunk(tokens,sequence,logits,null);}
+            public void stageMultimodalPrompt(org.beehive.jitllm.inference.state.MultimodalPromptPlan plan) {sequence.stageMultimodalPrompt(plan);}public void close() throws IOException {sequence.close();}
         };
         Draft draft=new Draft() {
             public int position() {return state.position();}public Checkpoint snapshot() throws IOException {return new DraftSaved(state.snapshot());}

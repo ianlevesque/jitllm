@@ -11,11 +11,13 @@ package org.beehive.jitllm.api;
  *
  * <h2>Where it lives</h2>
  *
- * <p>The same shape as {@link ThinkingMode}: on {@link ModelOptions} as a model default and on
- * {@link SessionOptions} as a per-session override, resolved once when the session opens. It only
- * applies while the reasoning phase is on; asking for an explicit effort on a session with thinking
- * {@linkplain ThinkingMode#DISABLED disabled} is rejected, as is asking a family whose template has
- * no such control ({@link ModelCapabilities#reasoningEffortControl()}).
+ * <p>The same shape as {@link ThinkingMode}: on {@link ModelOptions} as a model default, on
+ * {@link SessionOptions} as a per-session override, and on {@code GenerationRequest} as an
+ * optional per-request override ({@code null} inherits the session's) for the HTTP {@code
+ * reasoning_effort} field. It only applies while the reasoning phase is on; asking for an
+ * explicit effort with thinking {@linkplain ThinkingMode#DISABLED disabled} is rejected, as is
+ * asking a family whose template has no such control ({@link
+ * ModelCapabilities#reasoningEffortControl()}).
  */
 @Experimental
 public enum ReasoningEffort {

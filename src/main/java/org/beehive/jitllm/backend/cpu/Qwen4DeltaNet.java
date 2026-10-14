@@ -80,6 +80,32 @@ public final class Qwen4DeltaNet {
         float[] projected=Qwen4CpuLayers.project(qkv,input),gates=Qwen4CpuLayers.project(z,input);
         float[] alpha=Qwen4CpuLayers.project(a,input),beta=Qwen4CpuLayers.project(b,input);
         if(state.device!=null) return Qwen4CpuLayers.project(out,state.device.forward(projected,gates,alpha,beta));
+        return Qwen4CpuLayers.project(out,core(projected,gates,alpha,beta,state));
+    }
+    /**
+     * Distinct-row batched {@link #forward} for prefill: the qkv/z/a/b projections run as
+     * one distinct-row GEMM each and the output projection is batched the same way, while
+     * the causal convolution and gated-delta recurrence (or the device session) consume
+     * the rows strictly in order. Recurrent and convolution state therefore evolve exactly
+     * as sequential {@code forward} calls would leave them; no state update is reordered.
+     */
+    public float[][] forwardBatch(float[][] inputs,State state) throws IOException {
+        if(inputs.length==0 || state.owner!=this) throw new IllegalArgumentException("Invalid DeltaNet input/state");
+        state.requireOpen();
+        int rows=inputs.length;
+        float[] flat=Qwen4CpuLayers.flatten(inputs,config.dim());
+        float[][] projected=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(qkv,flat,rows),rows,qkv.rows());
+        float[][] gates=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(z,flat,rows),rows,z.rows());
+        float[][] alpha=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(a,flat,rows),rows,a.rows());
+        float[][] beta=Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(b,flat,rows),rows,b.rows());
+        float[][] normalized=new float[rows][];
+        for(int row=0; row<rows; row++)
+            normalized[row]=state.device!=null ? state.device.forward(projected[row],gates[row],alpha[row],beta[row])
+                    : core(projected[row],gates[row],alpha[row],beta[row],state);
+        return Qwen4CpuLayers.unflatten(Qwen4CpuLayers.projectBatch(out,Qwen4CpuLayers.flatten(normalized,z.rows()),rows),rows,out.rows());
+    }
+    /** Host causal convolution plus gated-delta recurrence for one projected row. */
+    private float[] core(float[] projected,float[] gates,float[] alpha,float[] beta,State state) {
         int kernel=config.linearConvKernel(),history=kernel-1;
         float[] convolved=new float[projected.length];
         for(int channel=0; channel<projected.length; channel++) {
@@ -150,6 +176,6 @@ public final class Qwen4DeltaNet {
                 normalized[offset]=bf(core[offset]*factor*norm[v]*gated);
             }
         }
-        return Qwen4CpuLayers.project(out,normalized);
+        return normalized;
     }
 }

@@ -21,19 +21,19 @@ import uk.ac.manchester.tornado.cublas.CuBlasOptions;
  */
 public final class FlashNextMtpFusionExecutor implements MtpFusionExecutor,AutoCloseable {
     private static final long WORKSPACE=32L<<20;
-    public record Statistics(long residentBytes,long peakBytes,long builds,long evictions,long forwards,long kernelNanos) {}
+    public record Statistics(long residentBytes,long peakBytes,long builds,long evictions,long forwards,long kernelNanos,long cacheHits,long cacheMisses,long hostUploadBytes,long hostDownloadBytes) {}
     private final TornadoDevice device;
     private final long budget;
     private final Set<DeviceFusion> fusions=Collections.newSetFromMap(new IdentityHashMap<>());
     private final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
-    private long resident,peak,builds,evictions,forwards,kernelNanos,graphId;
+    private long resident,peak,builds,evictions,forwards,kernelNanos,graphId,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     private record Key(DeviceFusion fusion,int rows,long thread) {}
     public FlashNextMtpFusionExecutor(int deviceIndex,long budget) {
         if(budget<=0) throw new IllegalArgumentException("Positive MTP fusion budget required");
         device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(deviceIndex);this.budget=budget;
     }
-    public synchronized Statistics statistics() {return new Statistics(resident,peak,builds,evictions,forwards,kernelNanos);}
+    public synchronized Statistics statistics() {return new Statistics(resident,peak,builds,evictions,forwards,kernelNanos,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes);}
     @Override public synchronized Fusion newFusion(ModelOptMatrix embedding,ModelOptMatrix hidden,int branches,float epsilon,float[] en,float[] hn) {
         if(closed) throw new IllegalStateException("MTP fusion executor is closed");
         int dim=embedding.rows();
@@ -56,6 +56,7 @@ public final class FlashNextMtpFusionExecutor implements MtpFusionExecutor,AutoC
                 for(float v:embeddings) if(!Float.isFinite(v)) throw new IllegalArgumentException("Nonfinite embedding");
                 for(float v:hidden) if(!Float.isFinite(v)) throw new IllegalArgumentException("Nonfinite HC state");
                 var key=new Key(this,rows,Thread.currentThread().threadId());var entry=cache.get(key);
+                if(entry!=null) cacheHits++;else cacheMisses++;
                 if(entry==null) {
                     long size=size(key);if(size>budget) throw new IOException("MTP fusion exceeds cache budget "+budget);
                     while(size>budget-resident) {
@@ -67,7 +68,7 @@ public final class FlashNextMtpFusionExecutor implements MtpFusionExecutor,AutoC
                 for(int i=0;i<hidden.length;i++) entry.hiddenInput.set(i,FloatFormats.roundBf16(hidden[i]));
                 try {
                     entry.last=entry.plan.execute();long time=entry.last.getProfilerResult().getDeviceKernelTime();if(time<=0) throw new IOException("MTP fusion recorded no CUDA kernels");
-                    kernelNanos+=time;forwards++;float[] result=new float[hidden.length];for(int i=0;i<result.length;i++) result[i]=entry.output.get(i);return result;
+                    kernelNanos+=time;forwards++;hostUploadBytes+=4L*(embeddings.length+hidden.length);hostDownloadBytes+=4L*hidden.length;float[] result=new float[hidden.length];for(int i=0;i<result.length;i++) result[i]=entry.output.get(i);return result;
                 } catch(RuntimeException failure) {throw new IOException("Native MTP fusion failed",failure);}
             }
         }

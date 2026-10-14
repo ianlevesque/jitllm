@@ -4,3 +4,4 @@ org.beehive.jitllm.backend.tornado.FlashNextRmsNormLibrary
 org.beehive.jitllm.backend.tornado.FlashNextBf16FloatLibrary
 org.beehive.jitllm.backend.tornado.FlashNextXqaLibrary
 org.beehive.jitllm.backend.tornado.FlashNextSharedBf16Library
+org.beehive.jitllm.backend.tornado.FlashNextHcMixLibrary

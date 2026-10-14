@@ -1,0 +1,7 @@
+{
+  "passed": true,
+  "matrix": "mtp.layers.0.mlp.experts.0.gate_proj",
+  "max_error": 0.0,
+  "exact_fraction": 1.0,
+  "native_calls": 100
+}

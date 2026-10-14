@@ -1,6 +1,7 @@
 package org.beehive.jitllm.inference.op;
 
 import java.io.IOException;
+import org.beehive.jitllm.format.safetensors.ModelOptMatrix;
 
 /** Backend-neutral HC arithmetic and request-owned PLE convolution; table lookup stays in the loader. */
 public interface FlashNextLayerExecutor {
@@ -25,6 +26,8 @@ public interface FlashNextLayerExecutor {
         float[] normalize(float[] hidden) throws IOException;
         float[] activateLow(float[] projected,boolean fused) throws IOException;
         float[] mix(float[] normalized,float[] projectedGates,boolean fused) throws IOException;
+        default boolean projectsMix() {return false;}
+        default float[] mixNormalized(float[] normalized,java.util.function.BiConsumer<String,float[]> trace) throws IOException {throw new UnsupportedOperationException("Native HC mix projection is unavailable");}
         float[] combine(float[] block,float[] residual,float[] projectedInjection) throws IOException;
         default boolean projectsInjection() {return false;}
         default float[] combineNormalized(float[] block,float[] residual,float[] normalized) throws IOException {throw new UnsupportedOperationException("Native HC injection is unavailable");}
@@ -41,5 +44,8 @@ public interface FlashNextLayerExecutor {
     }
     HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization);
     default HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights) {return newHyperConnection(shape,lowrank,normalization);}
+    default HyperConnection newHyperConnection(GroupedShape shape,int lowrank,float[] normalization,float[] injectionWeights,ModelOptMatrix down,ModelOptMatrix up) throws IOException {
+        return newHyperConnection(shape,lowrank,normalization,injectionWeights);
+    }
     PleSession newPleSession(PleShape shape,float[] keyNorm,float[] queryNorm,float[] convolutionNorm,float[] convolution);
 }

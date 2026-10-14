@@ -13,7 +13,7 @@ from safetensors import safe_open
 from sglang.kernels.ops.moe.fused_moe_triton_kernels import invoke_fused_moe_kernel
 from sglang.kernels.ops.moe.moe_fused_gate import moe_fused_gate
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent
 PREFIX = "mtp.layers.0.mlp."
 
 
@@ -75,7 +75,7 @@ def verify(model, device=1):
     with tempfile.TemporaryDirectory(prefix="jitllm-fp8-moe-") as directory:
         request = Path(directory) / "request.json"
         request.write_text(json.dumps({"inputs": inputs, "device": device, "gpu_cache_bytes": 128 << 20}))
-        process = subprocess.run([sys.executable, str(SCRIPT_DIR / "jitllm_runtime.py"), "fp8-moe-probe", str(model), str(request)],
+        process = subprocess.run([sys.executable, str(ROOT / "jitllm_runtime.py"), "fp8-moe-probe", str(model), str(request)],
                                  capture_output=True, text=True)
         if process.returncode:
             raise RuntimeError(process.stderr)

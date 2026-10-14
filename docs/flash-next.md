@@ -821,25 +821,56 @@ This is an experimental diagnostic path, not the full GPU model
 provider. `cache-probe` takes a `matrices` list of checkpoint projection prefixes
 and an optional `cache_bytes` budget.
 
+## Status update (2026-10-13, RTX PRO 6000)
+
+Implemented and verified since the sections above were written:
+
+- Native staged HC mix (SM120 cubin prepared by `prepare_jitllm_hc.py`) runs by
+  default for the qualified geometry. Its atomic FP32 reduction is not
+  bit-deterministic, so replay/parity gates use scale-relative BF16 tolerance
+  with exact discrete decisions; with the deterministic legacy mix
+  (`-Djitllm.qwen4.legacyHcMix=true`) the MTP block comparison against the
+  staged reference is bit-exact at every stage, and native-mode real-input
+  parity passes (`benchmarks/jitllm-flash-next/gpu-mtp-*-hc-real-parity.json`).
+- Serving: `jitllm_runtime.py serve` runs the OpenAI HTTP server (MTP on by
+  default, FP8 KV) and the launcher registers it as backend
+  `qwen-flash-next-jitllm` (`jitllm_flash_next.py`,
+  `jitllm-qwen-flash-next.service`, port 30014). HTTP parity includes sampling
+  (`top_k`, `min_p`, frequency/presence/repetition penalties), function tools
+  (definitions in, `tool_calls` out, tool results in; forced `tool_choice`
+  rejected), `reasoning_content` splitting, and Prometheus `/metrics`.
+  `enable_thinking` is load-time only and returns 400 per request.
+- Chat template renders byte-identically to the checkpoint template for the
+  expressible cases (including the template's content `trim`).
+- Vision: CPU reference tower and preprocessor match the HF reference to
+  3.7e-07 maxAbs, spliced into the engine/session with MRoPE positions;
+  `image_url` content parts (data:/http(s), 32 MiB cap) work over HTTP.
+- PLE: dedicated page cache (`jitllm.qwen4.plePageCacheBytes`, shared 256 MiB
+  default across layers) with deduped batched gather, bit-identical rows.
+- Throughput: fixed the 256 MiB HC projection sub-cache cap that rebuilt ~187
+  Tornado plans per token; the MTP API probe improved from 529 s to 175 s.
+  Warm serving measured on the PRO 6000 at ~4.8 s/token sequential prefill and
+  ~3.6 s/token decode — still far from staged latency (see remaining work).
+- 262,144 context is loadable end-to-end (config, FP8 KV and recurrent memory
+  preflight, executor budgets fit 3 sessions on 95 GB); the queueing HTTP
+  heuristic no longer falsely rejects near-window English prompts. Live
+  needle qualification: `verify_jitllm_long_context.py`.
+
 ## Remaining requirements for the original goal
 
-1. Broaden text conformance beyond the successful short ChatML case. Broaden
-   the native MoE numeric checks, validate prompt/decode and reused-session
-   trajectories, and preserve the historical failure record. Qualify the staged precision policy in full-model prefill and reused-session trajectories.
-2. Complete GPU QSA provider/long-context qualification and fuse the native layer plans,
-   including grouped native NVFP4 projections and complete FP8 draft-layer integration. The normal CUDA
-   model provider now dispatches through its owned plans; production serving remains to be qualified.
-3. Finish real target-derived MTP/NextN numerical qualification, broaden native
-   speculative generation and multiturn replay, and batch target verification.
-   The opt-in CUDA API coordinator now performs draft-three verification,
-   rejection correction and accepted-prefix rollback.
-4. Qualify physical FP8 KV page transitions and efficient 262,144-token sparse indexing,
-   prefill/chunking, memory planning and three-request scheduling. Configuration
-   and admission checks do not prove full-context/concurrent inference.
-5. Implement native vision/image processing and exact checkpoint chat-template
-   behavior for replayed reasoning and tools; verify their API requests.
-6. Add launcher routing and systemd deployment after correct native serving is
-   demonstrated. Verify real text, long-context retrieval, NVMe page activity,
-   bounded memory, MTP, images and tools against current runtime evidence.
+1. Throughput: distinct-row batched prefill through the host layer executors,
+   de-serialized multi-session execution, and layer-plan fusion so activations
+   stop round-tripping the host; qualify `jitllm.qwen4.prefillChunk` > 1.
+2. Live 262,144-token needle/long-prefill qualification and 3-request
+   scheduling evidence; prefix/radix cache parity with the staged profile.
+3. Vision follow-through: GPU tower, PIL-identical resampling, video frames,
+   MTP draft MRoPE positions after images, and assistant prose combined with
+   tool calls in history.
+4. Broaden text/tool conformance beyond the short cases (multiturn tool
+   trajectories, long reused-session replay) and qualify MTP acceptance on
+   real generations.
+5. Sampling/serving odds and ends: logprobs, `n > 1`, per-request thinking
+   control in the facade.
 
-The original goal remains active. No native production route has been published.
+The original goal remains active. The JITLLM route is registered with the
+launcher for testing; staged SGLang remains the production profile.

@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from safetensors import safe_open
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parent
 PREFIX="model.language_model.layers.3.self_attn."
 
 
@@ -94,8 +94,8 @@ def verify(model,fp8=False,fused=False,fresh=False,gpu=False,projected=False,dev
     with tempfile.TemporaryDirectory(prefix="jitllm-qsa-") as temp:
         request=Path(temp)/"request.json"
         request.write_text(json.dumps({"mode":"qsa","inputs":[x.float().tolist() for x in inputs],"positions":positions,"kv_dtype":"fp8_e4m3" if fp8 else "bf16","fused_precision":fused,"fresh_prefill":fresh,"gpu_projections":projected,"device":device}))
-        command=[sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"qsa-probe",str(model),str(request)] if gpu else [
-                "java","-Xmx1g","-cp",str(ROOT/"target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
+        command=[sys.executable,str(ROOT/"jitllm_runtime.py"),"qsa-probe",str(model),str(request)] if gpu else [
+                "java","-Xmx1g","-cp",str(ROOT/".local/jitllm/target/classes"),"org.beehive.jitllm.integration.cli.FlashNextLayerProbe",str(model),str(request)]
         result=subprocess.run(command,capture_output=True,text=True)
         if result.returncode:raise RuntimeError(result.stderr)
         lines=[line for line in result.stdout.splitlines() if line.startswith('{"')]

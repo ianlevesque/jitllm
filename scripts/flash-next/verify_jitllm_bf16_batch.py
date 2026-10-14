@@ -9,7 +9,7 @@ import tempfile
 import torch
 from safetensors import safe_open
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parent
 
 
 def verify(model: Path) -> dict:
@@ -29,7 +29,7 @@ def verify(model: Path) -> dict:
             with tempfile.TemporaryDirectory(prefix="jitllm-bf16-batch-") as temp:
                 request=Path(temp)/"request.json"
                 request.write_text(json.dumps({"matrix":prefix,"batch_rows":batch,"input":values.float().flatten().tolist(),"device":1}))
-                result=subprocess.run([sys.executable,str(Path(__file__).resolve().parent/"jitllm_runtime.py"),"bf16-batch-probe",str(model),str(request)],capture_output=True,text=True)
+                result=subprocess.run([sys.executable,str(ROOT/"jitllm_runtime.py"),"bf16-batch-probe",str(model),str(request)],capture_output=True,text=True)
                 if result.returncode:raise RuntimeError(result.stderr+result.stdout)
                 lines=[line for line in result.stdout.splitlines() if line.startswith('{"')]
                 if len(lines)!=1:raise RuntimeError("Expected one BF16 batch report: "+result.stdout)

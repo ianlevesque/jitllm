@@ -74,7 +74,8 @@ public class StableSurfaceTest {
                             "ModelConfiguration",
                             "ModelInfo",
                             "InsufficientDeviceMemoryException",
-                            "ReasoningEffort"));
+                            "ReasoningEffort",
+                            "TokenLogprob"));
 
     /** The exact stable set — a type appearing in neither list is an undeclared decision. */
     @Test

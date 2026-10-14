@@ -20,19 +20,20 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
  */
 public final class FlashNextMoeExecutor implements MoeExecutor,AutoCloseable {
     public record Statistics(long residentBytes,long layerBytes,long expertBytes,int layers,int registeredExperts,long uploads,long evictions,
-                             long expertFileBytes,long forwards,long kernelNanos,long idDownloadBytes,long intermediateDownloadBytes,long peakBytes,long layerBuilds) {}
+                             long expertFileBytes,long forwards,long kernelNanos,long idDownloadBytes,long intermediateDownloadBytes,long peakBytes,long layerBuilds,
+                             long expertCacheHits,long expertCacheMisses,long expertEvictedBytes,long hostUploadBytes,long hostDownloadBytes) {}
     private static final int PAD=32;
     private final TornadoDevice device;
     private final long budget;
     private final Set<DeviceLayer> layers=Collections.newSetFromMap(new IdentityHashMap<>());
     private final FlashNextExpertCache weights;
-    private long layerBytes,graphId,forwards,kernelNanos,idDownloads,peakBytes,layerBuilds;
+    private long layerBytes,graphId,forwards,kernelNanos,idDownloads,peakBytes,layerBuilds,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     public FlashNextMoeExecutor(int index,long budget) {
         if(budget<=0) throw new IllegalArgumentException("Positive MoE budget required");this.budget=budget;
         device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(index);weights=new FlashNextExpertCache(device,budget);
     }
-    public synchronized Statistics statistics() {return new Statistics(layerBytes+weights.resident,layerBytes,weights.resident,layers.size(),weights.cache.size(),weights.uploads,weights.evictions,weights.readBytes,forwards,kernelNanos,idDownloads,0,peakBytes,layerBuilds);}
+    public synchronized Statistics statistics() {return new Statistics(layerBytes+weights.resident,layerBytes,weights.resident,layers.size(),weights.cache.size(),weights.uploads,weights.evictions,weights.readBytes,forwards,kernelNanos,idDownloads,0,peakBytes,layerBuilds,weights.hits,weights.misses,weights.evictedBytes,hostUploadBytes,hostDownloadBytes);}
     @Override public synchronized Layer newLayer(ModelOptMatrix router,ModelOptMatrix sharedGate,ModelOptMatrix sharedUp,ModelOptMatrix sharedDown,ModelOptMatrix sharedRouter,
                                                 ModelOptMatrix[] gates,ModelOptMatrix[] ups,ModelOptMatrix[] downs,int topK,boolean normalize,float inputScale,float intermediateScale) throws IOException {
         if(closed) throw new IllegalStateException("MoE executor is closed");
@@ -137,6 +138,7 @@ public final class FlashNextMoeExecutor implements MoeExecutor,AutoCloseable {
                     peakBytes=Math.max(peakBytes,layerBytes+weights.resident);
                     run(1);run(2);
                 }
+                hostUploadBytes+=4L*dim+24L*top;hostDownloadBytes+=8L*top+4L*dim;
                 float[] result=new float[dim];for(int i=0;i<dim;i++) result[i]=output.get(i);forwards++;
                 return new Result(result,ids,routing);
             }
@@ -148,7 +150,7 @@ public final class FlashNextMoeExecutor implements MoeExecutor,AutoCloseable {
         @Override public float[] routingWeights() throws IOException {
             synchronized(FlashNextMoeExecutor.this) {
                 if(released || closed) throw new IOException("GPU MoE layer is closed");run(3);
-                float[] result=new float[top];for(int i=0;i<top;i++) result[i]=diagnosticWeights.get(i);idDownloads+=4L*result.length;return result;
+                float[] result=new float[top];for(int i=0;i<top;i++) result[i]=diagnosticWeights.get(i);idDownloads+=4L*result.length;hostDownloadBytes+=4L*result.length;return result;
             }
         }
     }

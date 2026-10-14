@@ -4,6 +4,28 @@ import hashlib
 import json
 
 
+def native_hc_environment(provenance: Path, env: dict) -> None:
+    if not provenance.is_file():
+        return
+    data = json.loads(provenance.read_text())
+    if (data.get("sglang_ref") != "745de73ba3c136b6f99b7a3e2177ed1a8eef4a56"
+            or data.get("compute_capability") != [12, 0] or data.get("rows") != 1
+            or data.get("columns") != 10240 or data.get("lowrank") != 320
+            or data.get("dimension") != 2560 or data.get("branches") != 4
+            or data.get("kernel") != "_hc_mix_persistent_kernel"
+            or data.get("shared_bytes") != 51200 or data.get("num_warps") != 8
+            or data.get("abi") != ["u64"] * 6 + ["u32"] * 4 + ["f32"] + ["u64"] * 2
+            or data.get("global_scratch_bytes") != 0 or data.get("profile_scratch_bytes") != 0
+            or data.get("barrier_replay_passed") is not True):
+        raise RuntimeError("Prepared HC kernel has an incompatible source/launch ABI")
+    path = Path(data["cubin"])
+    digest = data["cubin_sha256"]
+    if not path.is_absolute() or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        raise RuntimeError(f"Prepared HC kernel changed: {path}")
+    env["JITLLM_HC_CUBIN"] = str(path)
+    env["JITLLM_HC_SHA256"] = digest
+
+
 def native_qsa_environment(provenance: Path, env: dict) -> None:
     if not provenance.is_file():
         return

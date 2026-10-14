@@ -16,18 +16,18 @@ import uk.ac.manchester.tornado.api.types.arrays.*;
 /** HC BF16 tensor-core projection with an FP32 accumulator/store and bounded residency. */
 public final class FlashNextBf16FloatMatrixExecutor implements AutoCloseable {
     private static final int PAD=16;
-    public record Statistics(long residentBytes,long peakBytes,long uploads,long evictions,long executions,long kernelNanos) {}
+    public record Statistics(long residentBytes,long peakBytes,long uploads,long evictions,long executions,long kernelNanos,long cacheHits,long cacheMisses,long hostUploadBytes,long hostDownloadBytes) {}
     private record Key(ModelOptMatrix matrix,int partition) {}
     private final TornadoDevice device;
     private final long budget;
     private final LinkedHashMap<Key,Entry> cache=new LinkedHashMap<>(16,.75f,true);
-    private long resident,peak,uploads,evictions,executions,kernelNanos,graphId;
+    private long resident,peak,uploads,evictions,executions,kernelNanos,graphId,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes;
     private boolean closed;
     public FlashNextBf16FloatMatrixExecutor(int index,long budget) {
         if(budget<=0) throw new IllegalArgumentException("Positive HC projection budget required");
         device=TornadoRuntimeProvider.getTornadoRuntime().getBackend(0).getDevice(index);this.budget=budget;
     }
-    public synchronized Statistics statistics() {return new Statistics(resident,peak,uploads,evictions,executions,kernelNanos);}
+    public synchronized Statistics statistics() {return new Statistics(resident,peak,uploads,evictions,executions,kernelNanos,cacheHits,cacheMisses,hostUploadBytes,hostDownloadBytes);}
     private static long size(Key key) {
         var m=key.matrix;return m.weights().bytes()+4L*(m.columns()+m.rows()+2L)
                 +2L*PAD*m.columns()+4L*PAD*m.rows()*(m.columns()/key.partition)+6L*TornadoNativeArray.ARRAY_HEADER+FlashNextBf16FloatLibrary.WORKSPACE_BYTES;
@@ -67,6 +67,7 @@ public final class FlashNextBf16FloatMatrixExecutor implements AutoCloseable {
                 || values.length!=matrix.columns() || output.length!=matrix.rows()) throw new IllegalArgumentException("Invalid BF16/F32 projection");
         for(float value:values) if(!Float.isFinite(value)) throw new IllegalArgumentException("Nonfinite HC projection input");
         var key=new Key(matrix,partition);var entry=cache.get(key);
+        if(entry!=null) cacheHits++;else cacheMisses++;
         if(entry==null) {
             long bytes=size(key);if(bytes>budget) throw new IOException("HC projection exceeds budget "+budget);
             while(bytes>budget-resident) {var iterator=cache.entrySet().iterator();var old=iterator.next();old.getValue().close();iterator.remove();resident-=old.getValue().bytes;evictions++;}
@@ -75,7 +76,7 @@ public final class FlashNextBf16FloatMatrixExecutor implements AutoCloseable {
         for(int i=0;i<values.length;i++) entry.input.set(i,values[i]);
         try {
             long time=entry.plan.execute().getProfilerResult().getDeviceKernelTime();if(time<=0) throw new IOException("HC BF16/F32 projection recorded no CUDA kernels");
-            kernelNanos+=time;executions++;for(int i=0;i<output.length;i++) output[i]=entry.output.get(i);
+            kernelNanos+=time;executions++;hostUploadBytes+=4L*values.length;hostDownloadBytes+=4L*output.length;for(int i=0;i<output.length;i++) output[i]=entry.output.get(i);
         } catch(RuntimeException failure) {throw new IOException("HC BF16/F32 projection failed",failure);}
     }
     @Override public synchronized void close() throws IOException {

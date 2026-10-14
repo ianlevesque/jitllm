@@ -5,7 +5,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from jitllm_runtime import ROOT, SCRIPT_DIR, INSTALL
+from jitllm_runtime import ROOT, INSTALL
+from prepare_jitllm_source import JITLLM_REF
 
 
 def verify(model: Path, device: int) -> dict:
@@ -13,7 +14,7 @@ def verify(model: Path, device: int) -> dict:
     for layer in ["model.language_model.layers.0", "mtp.layers.0"]:
         for projection in ["gate_proj", "up_proj", "down_proj"]:
             matrix = layer + ".mlp.experts.0." + projection
-            result = subprocess.run([sys.executable, str(SCRIPT_DIR / "jitllm_runtime.py"), "probe", str(model),
+            result = subprocess.run([sys.executable, str(ROOT / "jitllm_runtime.py"), "probe", str(model),
                                      "--matrix", matrix, "--device", str(device)], capture_output=True, text=True)
             if result.returncode:
                 raise RuntimeError(result.stderr + result.stdout)
@@ -24,10 +25,8 @@ def verify(model: Path, device: int) -> dict:
             if report["gpu_kernel_ns"] <= 0:
                 raise AssertionError("Missing GPU kernel execution")
             reports.append(report)
-    provenance_file = INSTALL / "provenance.json"
-    provenance = json.loads(provenance_file.read_text()) if provenance_file.exists() else {}
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    return {"jitllm_ref": revision, "tornadovm_ref": provenance.get("ref"), "checkpoint": str(model.resolve()),
+    provenance = json.loads((INSTALL / "provenance.json").read_text())
+    return {"jitllm_ref": JITLLM_REF, "tornadovm_ref": provenance["ref"], "checkpoint": str(model.resolve()),
             "activation_dtype": "F32", "weight_formats": ["NVFP4", "block-FP8"], "tornado_device_index": device, "projections": reports}
 
 
